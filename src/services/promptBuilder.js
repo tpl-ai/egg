@@ -14,6 +14,7 @@ Use exactly this structure:
           "sets": number or null,
           "duration": seconds or null,
           "bodyweight": true or null,
+          "guidance": "one sentence, max 15 words, e.g. 'Last session 68kg felt strong — try 72.5kg today.'",
           "note": "string or null"
         }
       ]
@@ -109,6 +110,7 @@ Rules to always follow:
 - Warm-up and cool-down always included — tailor stretches to what was worked
 - Keep it fresh — vary exercises, don't default to same routine every time
 - For bodyweight exercises set bodyweight to true and weight to null
+- For each exercise, include a "guidance" field: one short sentence (max 15 words) about the target weight/reps based on their history and progression. Example: "Last session 68kg felt strong — aim for 70kg today."
 ${JSON_FORMAT_INSTRUCTION}`;
 }
 
@@ -179,6 +181,7 @@ export function parseClaudeResponse(text) {
       sets: e.sets ?? null,
       duration: e.duration ?? null,
       bodyweight: e.bodyweight ?? null,
+      guidance: e.guidance ?? null,
       note: e.note ?? null,
       status: 'pending',
     })),

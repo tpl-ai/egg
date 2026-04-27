@@ -123,9 +123,14 @@ const CloseSVG = () => (
   </svg>
 );
 
-// ─── Number Pad ───────────────────────────────────────────────────────────────
-function NumberPad({ label, initial, onConfirm, onClose }) {
-  const [val, setVal] = useState(initial === 'BW' ? '' : (initial || ''));
+// ─── Number Pad ─────────────────────────────────────────────────────────────
+// Renders as position:absolute inside the logging panel (position:fixed).
+// Backdrop tap saves + closes. Done button saves + closes.
+function NumberPad({ label, initial, onConfirm }) {
+  // If initial is '0' or empty, start with blank display so user types fresh
+  const [val, setVal] = useState(
+    initial === 'BW' || initial === '0' || !initial ? '' : initial
+  );
   const [pressedKey, setPressedKey] = useState(null);
 
   const press = (key) => {
@@ -149,20 +154,21 @@ function NumberPad({ label, initial, onConfirm, onClose }) {
   ];
 
   const displayVal = val === '' ? '—' : val;
+  // Save current val on confirm (backdrop tap or Done button)
+  const confirm = () => onConfirm(val || '0');
 
   return (
-    <div style={S.numPadOverlay} onPointerDown={onClose}>
+    // Overlay fills the logging panel; tapping it saves + closes
+    <div style={S.numPadOverlay} onPointerDown={confirm}>
       <div style={S.numPadPanel} onPointerDown={e => e.stopPropagation()}>
-        {/* Display */}
         <div style={S.numPadLabel}>{label}</div>
         <div style={S.numPadDisplay}>{displayVal}</div>
 
-        {/* Grid */}
         <div style={S.numPadGrid}>
           {KEYS.map((row, r) =>
             row.map(key => (
               <button
-                key={key}
+                key={`${r}-${key}`}
                 style={{
                   ...S.numPadKey,
                   ...(key === '⌫' ? S.numPadKeyBackspace : {}),
@@ -184,16 +190,72 @@ function NumberPad({ label, initial, onConfirm, onClose }) {
           )}
         </div>
 
-        {/* Actions */}
         <div style={S.numPadActions}>
           <button style={S.numPadClear}
             onPointerDown={(e) => { e.preventDefault(); setVal(''); }}>Clear</button>
           <button style={S.numPadDone}
-            onPointerDown={(e) => { e.preventDefault(); onConfirm(val); }}>Done</button>
+            onPointerDown={(e) => { e.preventDefault(); confirm(); }}>Done</button>
         </div>
       </div>
     </div>
   );
+}
+
+// ─── AI Guidance Card ────────────────────────────────────────────────────────
+function GuidanceCard({ exercise, data }) {
+  const last = data?.exercises?.[exercise.name];
+  const pr   = data?.prs?.[exercise.name];
+
+  const isBW = exercise.bodyweight === true;
+  const hasTarget = !isBW && exercise.weight != null && exercise.reps != null;
+  const hasPR = pr && pr.weight != null;
+  const hasLast = last?.lastWeight != null;
+  const hasGuidance = !!exercise.guidance;
+
+  if (!hasGuidance && !hasLast && !hasTarget && !hasPR) return null;
+
+  const setsCount = exercise.sets?.length || null;
+
+  return (
+    <div style={S.guidanceCard}>
+      {hasGuidance && (
+        <div style={S.guidanceText}>{exercise.guidance}</div>
+      )}
+      <div style={S.guidanceRows}>
+        {hasLast && (
+          <div style={S.guidanceRow}>
+            <span style={S.guidanceLabel}>Last</span>
+            <span style={S.guidanceVal}>
+              {last.lastWeight}kg × {last.lastReps}{last.lastSets ? ` × ${last.lastSets}` : ''}
+            </span>
+          </div>
+        )}
+        {hasTarget && (
+          <div style={S.guidanceRow}>
+            <span style={S.guidanceLabel}>Target</span>
+            <span style={{ ...S.guidanceVal, color: C.yolkDeep }}>
+              {exercise.weight}kg × {exercise.reps}{setsCount ? ` × ${setsCount}` : ''} ↑
+            </span>
+          </div>
+        )}
+        {hasPR && (
+          <div style={S.guidanceRow}>
+            <span style={S.guidanceLabel}>PR</span>
+            <span style={S.guidanceVal}>
+              {pr.weight}kg × {pr.reps}{pr.date ? ` (${formatPRDate(pr.date)})` : ''}
+            </span>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function formatPRDate(dateStr) {
+  if (!dateStr) return '';
+  try {
+    return new Date(dateStr).toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+  } catch { return ''; }
 }
 
 // ─── Tappable value field ─────────────────────────────────────────────────────
@@ -232,9 +294,9 @@ export default function WorkoutScreen({ sessionConfig, data, onFinish }) {
         id: `${g.name}-${i}`,
         status: 'pending',
         sets: Array(e.sets || 3).fill(null).map(() => ({
-          weight: (e.bodyweight === true || e.weight === 0) ? 'BW' : (e.weight?.toString() || ''),
-          reps: e.reps?.toString() || '',
-          duration: e.duration?.toString() || '',
+          weight: (e.bodyweight === true || e.weight === 0) ? 'BW' : '0',
+          reps: '0',
+          duration: '0',
           completed: false,
         })),
       })),
@@ -369,8 +431,8 @@ export default function WorkoutScreen({ sessionConfig, data, onFinish }) {
       duration: useDuration ? '' : null, // null → kg/reps mode; '' → duration mode
       bodyweight: null,
       sets: [useDuration
-        ? { duration: '', completed: false }
-        : { weight: lp?.lastWeight?.toString() || '', reps: '', completed: false }
+        ? { duration: '0', completed: false }
+        : { weight: '0', reps: '0', completed: false }
       ],
     };
     setGroups(prev => prev.map(g =>
@@ -496,26 +558,20 @@ export default function WorkoutScreen({ sessionConfig, data, onFinish }) {
         ))}
       </div>
 
-      {/* ── Logging Panel ── */}
+      {/* ── Logging Panel — fixed sheet, 90vh, slides up from bottom ── */}
       {activeExercise && (
         <div style={S.loggingPanel}>
+          {/* Drag handle — touch-action:none prevents pull-to-dismiss */}
           <div style={S.panelHandle} />
 
-          {/* Exercise name + last performance */}
-          <div style={{ marginBottom: 16 }}>
-            <div style={S.exerciseName}>{activeExercise.name.toUpperCase()}</div>
-            {data?.exercises?.[activeExercise.name]?.lastWeight && (
-              <div style={S.lastTime}>
-                <span style={{ color: C.grey, fontWeight: 700 }}>Last time:</span>
-                {' '}
-                <span>{data.exercises[activeExercise.name].lastWeight}kg × {data.exercises[activeExercise.name].lastReps}</span>
-                <span> ↑</span>
-              </div>
-            )}
-          </div>
+          {/* AI guidance card */}
+          <GuidanceCard exercise={activeExercise} data={data} />
 
-          {/* Sets */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, overflowY: 'auto', maxHeight: 260 }}>
+          {/* Exercise name */}
+          <div style={S.exerciseName}>{activeExercise.name.toUpperCase()}</div>
+
+          {/* Sets — scrollable if many sets */}
+          <div style={S.setsScroll}>
             {activeExercise.sets?.map((set, i) => {
               const isBW = set.weight === 'BW';
               return (
@@ -523,7 +579,6 @@ export default function WorkoutScreen({ sessionConfig, data, onFinish }) {
                   <span style={S.setLabel}>SET {i + 1}</span>
 
                   {activeExercise.duration !== null ? (
-                    /* Duration exercise */
                     <ValueField
                       value={set.duration}
                       unit="sec"
@@ -531,7 +586,6 @@ export default function WorkoutScreen({ sessionConfig, data, onFinish }) {
                     />
                   ) : (
                     <>
-                      {/* Weight field */}
                       {isBW ? (
                         <div style={S.bwField}>
                           <span style={S.valNum}>BW</span>
@@ -544,10 +598,7 @@ export default function WorkoutScreen({ sessionConfig, data, onFinish }) {
                           onTap={() => openPad(i, 'weight', 'WEIGHT (kg)')}
                         />
                       )}
-
                       <span style={S.times}>×</span>
-
-                      {/* Reps field */}
                       <ValueField
                         value={set.reps}
                         unit="reps"
@@ -556,12 +607,8 @@ export default function WorkoutScreen({ sessionConfig, data, onFinish }) {
                     </>
                   )}
 
-                  {/* Check button */}
                   <button
-                    style={{
-                      ...S.checkBtn,
-                      ...(set.completed ? S.checkBtnDone : {}),
-                    }}
+                    style={{ ...S.checkBtn, ...(set.completed ? S.checkBtnDone : {}) }}
                     onClick={() => markSetDone(activeExercise.groupName, activeExercise.id, i)}
                     aria-label={set.completed ? 'Mark incomplete' : 'Mark complete'}
                   >
@@ -582,17 +629,16 @@ export default function WorkoutScreen({ sessionConfig, data, onFinish }) {
               <CheckSVG size={14} strokeWidth={2.6} color={C.ink} />
             </button>
           </div>
-        </div>
-      )}
 
-      {/* ── Number Pad overlay ── */}
-      {numPad && (
-        <NumberPad
-          label={numPad.label}
-          initial={numPad.value}
-          onConfirm={confirmPad}
-          onClose={() => setNumPad(null)}
-        />
+          {/* Number pad — absolute inside the logging panel, never covers squares */}
+          {numPad && (
+            <NumberPad
+              label={numPad.label}
+              initial={numPad.value}
+              onConfirm={confirmPad}
+            />
+          )}
+        </div>
       )}
 
       {/* ── Add Exercise Panel ── */}
@@ -716,7 +762,7 @@ const S = {
   timer: { fontSize:16, fontWeight:900, color:C.yolkDeep, fontVariantNumeric:'tabular-nums', letterSpacing:-0.4 },
   finishBtn: { height:28, padding:'0 12px', borderRadius:99, background:'transparent', border:`1.5px solid ${C.coral}`, color:C.coral, fontFamily:FONT, fontSize:12, fontWeight:800, letterSpacing:0.2, cursor:'pointer', whiteSpace:'nowrap' },
 
-  // Slots — scrollable area between header and panel
+  // Slots — scrollable, sits behind the logging panel when open
   slotsArea: { padding:'14px 16px 16px', display:'flex', flexDirection:'column', gap:12, flex:1, overflowY:'auto', WebkitOverflowScrolling:'touch', overscrollBehavior:'contain' },
   groupCaps: { fontSize:10.5, fontWeight:800, letterSpacing:1.4, textTransform:'uppercase', color:C.grey, paddingLeft:4 },
   slotsGrid: { display:'grid', gridTemplateColumns:'repeat(5, 1fr)', gap:8 },
@@ -724,14 +770,38 @@ const S = {
   doneBadge: { position:'absolute', top:6, right:6, width:14, height:14, borderRadius:99, background:C.yolkSoft, display:'flex', alignItems:'center', justifyContent:'center' },
   addSlot: { aspectRatio:'1/1', borderRadius:18, border:`1.5px dashed ${C.yolk}`, background:'transparent', display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer', boxSizing:'border-box' },
 
-  // Logging panel — anchored at bottom, never dismissible via swipe
-  loggingPanel: { background:C.panelLight, borderTopLeftRadius:32, borderTopRightRadius:32, padding:'14px 18px 24px', boxShadow:'0 -10px 28px -16px rgba(74,63,42,0.25), 0 -1px 0 rgba(44,36,22,0.06)', borderTop:'1px solid rgba(255,255,255,0.7)', display:'flex', flexDirection:'column', gap:0, flexShrink:0, touchAction:'pan-y' },
-  panelHandle: { width:38, height:4, borderRadius:99, background:C.line, margin:'-2px auto 14px', touchAction:'none' },
-  exerciseName: { fontSize:24, fontWeight:900, color:C.ink, letterSpacing:-0.6, lineHeight:1 },
-  lastTime: { fontSize:12.5, fontWeight:800, color:C.yolkDeep, marginTop:7, display:'flex', alignItems:'center', gap:5 },
+  // Logging panel — fixed 90vh sheet slides up from bottom
+  loggingPanel: {
+    position:'fixed', bottom:0, left:0, right:0,
+    height:'90vh',
+    background:C.panelLight,
+    borderTopLeftRadius:32, borderTopRightRadius:32,
+    padding:'14px 18px 28px',
+    boxShadow:'0 -10px 40px -10px rgba(44,36,22,0.28)',
+    display:'flex', flexDirection:'column', gap:0,
+    zIndex:50,
+    overflow:'hidden',       // clips numPad slide within panel
+    touchAction:'pan-y',     // allow internal scroll, not dismiss
+    animation:'slideUp 260ms cubic-bezier(0.32,0.72,0,1)',
+  },
+  panelHandle: { width:38, height:4, borderRadius:99, background:C.line, margin:'0 auto 14px', flexShrink:0, touchAction:'none' },
+
+  // AI guidance card
+  guidanceCard: { background:C.yolkSoft, borderRadius:14, padding:'10px 14px', marginBottom:12, flexShrink:0 },
+  guidanceText: { fontSize:12.5, fontWeight:700, color:C.ink2, lineHeight:1.4, marginBottom:6, fontStyle:'italic' },
+  guidanceRows: { display:'flex', flexDirection:'column', gap:3 },
+  guidanceRow: { display:'flex', gap:8, alignItems:'baseline' },
+  guidanceLabel: { fontSize:10, fontWeight:800, letterSpacing:0.8, textTransform:'uppercase', color:C.yolkDeep, flexShrink:0, width:36 },
+  guidanceVal: { fontSize:12.5, fontWeight:700, color:C.ink2 },
+
+  // Exercise name
+  exerciseName: { fontSize:26, fontWeight:900, color:C.ink, letterSpacing:-0.7, lineHeight:1, marginBottom:14, flexShrink:0 },
+
+  // Sets list — scrollable if many sets
+  setsScroll: { display:'flex', flexDirection:'column', gap:8, overflowY:'auto', flex:1, paddingBottom:4 },
 
   // Set row
-  setRow: { display:'flex', alignItems:'center', gap:8 },
+  setRow: { display:'flex', alignItems:'center', gap:8, flexShrink:0 },
   setLabel: { width:38, fontSize:10, fontWeight:800, color:C.grey, letterSpacing:1.1, textTransform:'uppercase', whiteSpace:'nowrap', flexShrink:0 },
 
   // Value field (tappable)
@@ -741,7 +811,6 @@ const S = {
 
   // BW (non-editable weight)
   bwField: { flex:1, minWidth:0, height:54, borderRadius:14, background:C.panel, border:`1px solid ${C.line}`, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:1 },
-
   times: { fontSize:14, fontWeight:800, color:C.grey2, flexShrink:0 },
 
   // Check button — 44px tap target
@@ -749,24 +818,24 @@ const S = {
   checkBtnDone: { background:C.yolk, border:`2px solid ${C.yolk}`, boxShadow:'0 4px 12px -4px rgba(245,197,24,0.55)' },
 
   // Panel actions
-  panelActions: { display:'flex', gap:10, marginTop:14 },
+  panelActions: { display:'flex', gap:10, marginTop:12, flexShrink:0 },
   addSetBtn: { flexShrink:0, height:50, padding:'0 16px', borderRadius:16, cursor:'pointer', background:'transparent', color:C.ink, border:`1.5px solid ${C.ink}`, fontFamily:FONT, fontSize:14, fontWeight:800, letterSpacing:-0.1, whiteSpace:'nowrap' },
   doneBtn: { flex:1, height:50, borderRadius:16, border:'none', cursor:'pointer', background:C.yolk, color:C.ink, fontFamily:FONT, fontSize:16, fontWeight:900, letterSpacing:-0.2, boxShadow:'0 1px 0 rgba(255,255,255,0.6) inset, 0 10px 22px -10px rgba(245,197,24,0.6), 0 2px 0 rgba(44,36,22,0.06)', display:'flex', alignItems:'center', justifyContent:'center', gap:8, whiteSpace:'nowrap' },
 
-  // Number pad
-  numPadOverlay: { position:'fixed', inset:0, background:'rgba(44,36,22,0.45)', zIndex:200, display:'flex', alignItems:'flex-end', animation:'fadeIn 150ms ease' },
-  numPadPanel: { width:'100%', background:C.panelLight, borderTopLeftRadius:28, borderTopRightRadius:28, padding:'20px 16px 32px', display:'flex', flexDirection:'column', gap:0, animation:'slideUp 250ms ease', fontFamily:FONT },
-  numPadLabel: { fontSize:10.5, fontWeight:800, letterSpacing:1.6, textTransform:'uppercase', color:C.grey, textAlign:'center', marginBottom:8 },
-  numPadDisplay: { fontSize:48, fontWeight:900, color:C.ink, letterSpacing:-2, textAlign:'center', lineHeight:1, marginBottom:16, fontVariantNumeric:'tabular-nums', minHeight:58 },
-  numPadGrid: { display:'grid', gridTemplateColumns:'repeat(3, 1fr)', gap:8, marginBottom:12 },
-  numPadKey: { height:72, borderRadius:16, background:C.panel, border:`1px solid ${C.line}`, fontSize:26, fontWeight:800, color:C.ink, cursor:'pointer', fontFamily:FONT, display:'flex', alignItems:'center', justifyContent:'center', boxShadow:'0 1px 0 rgba(255,255,255,0.55) inset', userSelect:'none', WebkitUserSelect:'none' },
+  // Number pad — position:absolute inside the fixed logging panel
+  numPadOverlay: { position:'absolute', inset:0, background:'rgba(255,250,236,0.55)', backdropFilter:'blur(2px)', WebkitBackdropFilter:'blur(2px)', zIndex:10, display:'flex', alignItems:'flex-end', animation:'fadeIn 120ms ease' },
+  numPadPanel: { width:'100%', background:C.panelLight, borderTopLeftRadius:24, borderTopRightRadius:24, padding:'16px 14px 20px', display:'flex', flexDirection:'column', gap:0, animation:'slideUp 220ms cubic-bezier(0.32,0.72,0,1)', fontFamily:FONT, boxShadow:'0 -4px 20px -8px rgba(44,36,22,0.2)' },
+  numPadLabel: { fontSize:10.5, fontWeight:800, letterSpacing:1.6, textTransform:'uppercase', color:C.grey, textAlign:'center', marginBottom:6 },
+  numPadDisplay: { fontSize:48, fontWeight:900, color:C.ink, letterSpacing:-2, textAlign:'center', lineHeight:1, marginBottom:12, fontVariantNumeric:'tabular-nums', minHeight:54 },
+  numPadGrid: { display:'grid', gridTemplateColumns:'repeat(3, 1fr)', gap:6, marginBottom:8 },
+  numPadKey: { height:64, borderRadius:14, background:C.panel, border:`1px solid ${C.line}`, fontSize:24, fontWeight:800, color:C.ink, cursor:'pointer', fontFamily:FONT, display:'flex', alignItems:'center', justifyContent:'center', boxShadow:'0 1px 0 rgba(255,255,255,0.55) inset', userSelect:'none', WebkitUserSelect:'none' },
   numPadKeyBackspace: { background:C.bg, fontSize:16 },
   numPadKeyPressed: { background:C.line, boxShadow:'none' },
-  numPadActions: { display:'flex', gap:10, marginTop:4 },
-  numPadClear: { flex:1, height:56, borderRadius:16, background:C.panel, border:`1.5px solid ${C.line}`, fontSize:16, fontWeight:800, color:C.ink, cursor:'pointer', fontFamily:FONT },
-  numPadDone: { flex:2, height:56, borderRadius:16, background:C.yolk, border:'none', fontSize:17, fontWeight:900, color:C.ink, cursor:'pointer', fontFamily:FONT, boxShadow:'0 1px 0 rgba(255,255,255,0.6) inset, 0 8px 20px -8px rgba(245,197,24,0.6)' },
+  numPadActions: { display:'flex', gap:8, marginTop:2 },
+  numPadClear: { flex:1, height:50, borderRadius:14, background:C.panel, border:`1.5px solid ${C.line}`, fontSize:15, fontWeight:800, color:C.ink, cursor:'pointer', fontFamily:FONT },
+  numPadDone: { flex:2, height:50, borderRadius:14, background:C.yolk, border:'none', fontSize:16, fontWeight:900, color:C.ink, cursor:'pointer', fontFamily:FONT, boxShadow:'0 1px 0 rgba(255,255,255,0.6) inset, 0 8px 20px -8px rgba(245,197,24,0.6)' },
 
-  // Overlay + panels
+  // Overlays
   overlay: { position:'fixed', inset:0, background:'rgba(44,36,22,0.4)', zIndex:100, display:'flex', alignItems:'flex-end' },
   addPanel: { background:C.panelLight, borderTopLeftRadius:32, borderTopRightRadius:32, padding:'16px 18px 26px', width:'100%', maxHeight:'85vh', display:'flex', flexDirection:'column', gap:0, animation:'slideUp 280ms ease', fontFamily:FONT },
   closeCircleBtn: { width:30, height:30, borderRadius:99, padding:0, cursor:'pointer', background:'transparent', border:`1px solid ${C.line}`, display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 },

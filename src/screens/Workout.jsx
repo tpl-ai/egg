@@ -126,6 +126,7 @@ const CloseSVG = () => (
 // ─── Number Pad ───────────────────────────────────────────────────────────────
 function NumberPad({ label, initial, onConfirm, onClose }) {
   const [val, setVal] = useState(initial === 'BW' ? '' : (initial || ''));
+  const [pressedKey, setPressedKey] = useState(null);
 
   const press = (key) => {
     if (key === '⌫') {
@@ -133,7 +134,6 @@ function NumberPad({ label, initial, onConfirm, onClose }) {
     } else if (key === '.') {
       if (!val.includes('.')) setVal(v => v + '.');
     } else {
-      // Prevent leading zeros like "007"
       setVal(v => {
         if (v === '0') return key;
         return v + key;
@@ -151,8 +151,8 @@ function NumberPad({ label, initial, onConfirm, onClose }) {
   const displayVal = val === '' ? '—' : val;
 
   return (
-    <div style={S.numPadOverlay} onClick={onClose}>
-      <div style={S.numPadPanel} onClick={e => e.stopPropagation()}>
+    <div style={S.numPadOverlay} onPointerDown={onClose}>
+      <div style={S.numPadPanel} onPointerDown={e => e.stopPropagation()}>
         {/* Display */}
         <div style={S.numPadLabel}>{label}</div>
         <div style={S.numPadDisplay}>{displayVal}</div>
@@ -166,8 +166,11 @@ function NumberPad({ label, initial, onConfirm, onClose }) {
                 style={{
                   ...S.numPadKey,
                   ...(key === '⌫' ? S.numPadKeyBackspace : {}),
+                  ...(pressedKey === key ? S.numPadKeyPressed : {}),
                 }}
-                onClick={() => press(key)}
+                onPointerDown={(e) => { e.preventDefault(); setPressedKey(key); press(key); }}
+                onPointerUp={() => setPressedKey(null)}
+                onPointerLeave={() => setPressedKey(null)}
               >
                 {key === '⌫'
                   ? <svg width="22" height="16" viewBox="0 0 22 16" fill="none">
@@ -183,8 +186,10 @@ function NumberPad({ label, initial, onConfirm, onClose }) {
 
         {/* Actions */}
         <div style={S.numPadActions}>
-          <button style={S.numPadClear} onClick={() => setVal('')}>Clear</button>
-          <button style={S.numPadDone} onClick={() => onConfirm(val)}>Done</button>
+          <button style={S.numPadClear}
+            onPointerDown={(e) => { e.preventDefault(); setVal(''); }}>Clear</button>
+          <button style={S.numPadDone}
+            onPointerDown={(e) => { e.preventDefault(); onConfirm(val); }}>Done</button>
         </div>
       </div>
     </div>
@@ -269,6 +274,18 @@ export default function WorkoutScreen({ sessionConfig, data, onFinish }) {
     return () => clearInterval(id);
   }, []);
 
+  // Prevent iOS pull-to-refresh / overscroll dismissing the panel
+  useEffect(() => {
+    const prev = document.body.style.overflow;
+    const prevOs = document.body.style.overscrollBehavior;
+    document.body.style.overflow = 'hidden';
+    document.body.style.overscrollBehavior = 'none';
+    return () => {
+      document.body.style.overflow = prev;
+      document.body.style.overscrollBehavior = prevOs;
+    };
+  }, []);
+
   const formatTime = s => {
     const m = Math.floor(s / 60).toString().padStart(2, '0');
     return `${m}:${(s % 60).toString().padStart(2, '0')}`;
@@ -336,15 +353,8 @@ export default function WorkoutScreen({ sessionConfig, data, onFinish }) {
 
   const markDone = (groupName, exerciseId) => {
     updateExercise(groupName, exerciseId, { status: 'done' });
-    const flat = groups.flatMap(g => g.exercises.map(e => ({ ...e, groupName: g.name })));
-    const idx = flat.findIndex(e => e.id === exerciseId);
-    const next = flat.slice(idx + 1).find(e => e.status === 'pending');
-    if (next) {
-      const ng = groups.find(g => g.exercises.some(e => e.id === next.id));
-      setActiveExercise({ ...next, groupName: ng.name });
-    } else {
-      setActiveExercise(null);
-    }
+    // Don't auto-advance — user taps whichever square they want next
+    setActiveExercise(null);
   };
 
   const addExercise = (name, groupName) => {
@@ -405,12 +415,16 @@ export default function WorkoutScreen({ sessionConfig, data, onFinish }) {
     g.exercises.map(e => ({ ...e, groupName: g.name, index: globalIdx++ }))
   );
 
-  const workoutTitle = groups
-    .filter(g => g.name !== 'Warm-up' && g.name !== 'Cool-down' && g.name !== 'Cardio')
-    .map(g => g.name).join(' + ');
+  const workoutTitle = (() => {
+    const main = groups
+      .filter(g => g.name !== 'Warm-up' && g.name !== 'Cool-down' && g.name !== 'Cardio')
+      .map(g => g.name.replace(/\s*\(.*?\)/g, '').trim());
+    if (main.length <= 2) return main.join(' + ');
+    return main.slice(0, 2).join(' + ') + ` +${main.length - 2}`;
+  })();
 
   return (
-    <div style={{ background: C.bg, minHeight: '100vh', display: 'flex', flexDirection: 'column', fontFamily: FONT }}>
+    <div style={{ background: C.bg, height: '100vh', maxHeight: '-webkit-fill-available', display: 'flex', flexDirection: 'column', fontFamily: FONT, overflow: 'hidden', overscrollBehavior: 'none' }}>
 
       {/* ── Header ── */}
       <div style={S.header}>
@@ -431,7 +445,7 @@ export default function WorkoutScreen({ sessionConfig, data, onFinish }) {
       <div style={S.slotsArea}>
         {groups.map(group => (
           <div key={group.name} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            <div style={S.groupCaps}>{group.name.toUpperCase()}</div>
+            <div style={S.groupCaps}>{group.name.replace(/\s*\(.*?\)/g, '').trim().toUpperCase()}</div>
             <div style={S.slotsGrid}>
               {group.exercises.map(exercise => {
                 const sq = squaresData.find(s => s.id === exercise.id);
@@ -694,25 +708,25 @@ function AddExercisePanel({ currentGroupName, data, onAdd, onClose }) {
 // ─── Styles ───────────────────────────────────────────────────────────────────
 const S = {
   // Header
-  header: { display:'flex', justifyContent:'space-between', alignItems:'center', padding:'6px 18px 12px', borderBottom:`1px solid ${C.line}`, position:'sticky', top:0, background:C.bg, zIndex:10 },
-  headerLeft: { display:'flex', alignItems:'center', gap:9, minWidth:0 },
-  headerTitle: { fontSize:18, fontWeight:900, letterSpacing:-0.4, color:C.ink, whiteSpace:'nowrap' },
+  header: { display:'flex', justifyContent:'space-between', alignItems:'center', padding:'6px 18px 12px', borderBottom:`1px solid ${C.line}`, background:C.bg, zIndex:10, flexShrink:0 },
+  headerLeft: { display:'flex', alignItems:'center', gap:9, minWidth:0, overflow:'hidden' },
+  headerTitle: { fontSize:18, fontWeight:900, letterSpacing:-0.4, color:C.ink, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' },
   headerRight: { display:'flex', alignItems:'center', gap:8, flexShrink:0 },
   timerDot: { display:'inline-block', width:7, height:7, borderRadius:99, background:C.yolk, boxShadow:'0 0 0 4px rgba(245,197,24,0.18)', animation:'egg-pulse 1.6s ease-in-out infinite' },
   timer: { fontSize:16, fontWeight:900, color:C.yolkDeep, fontVariantNumeric:'tabular-nums', letterSpacing:-0.4 },
   finishBtn: { height:28, padding:'0 12px', borderRadius:99, background:'transparent', border:`1.5px solid ${C.coral}`, color:C.coral, fontFamily:FONT, fontSize:12, fontWeight:800, letterSpacing:0.2, cursor:'pointer', whiteSpace:'nowrap' },
 
-  // Slots
-  slotsArea: { padding:'14px 16px 16px', display:'flex', flexDirection:'column', gap:12 },
+  // Slots — scrollable area between header and panel
+  slotsArea: { padding:'14px 16px 16px', display:'flex', flexDirection:'column', gap:12, flex:1, overflowY:'auto', WebkitOverflowScrolling:'touch', overscrollBehavior:'contain' },
   groupCaps: { fontSize:10.5, fontWeight:800, letterSpacing:1.4, textTransform:'uppercase', color:C.grey, paddingLeft:4 },
   slotsGrid: { display:'grid', gridTemplateColumns:'repeat(5, 1fr)', gap:8 },
   slot: { aspectRatio:'1/1', borderRadius:18, border:'none', display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', padding:'6px 8px', gap:4, cursor:'pointer', boxSizing:'border-box', position:'relative', fontFamily:FONT },
   doneBadge: { position:'absolute', top:6, right:6, width:14, height:14, borderRadius:99, background:C.yolkSoft, display:'flex', alignItems:'center', justifyContent:'center' },
   addSlot: { aspectRatio:'1/1', borderRadius:18, border:`1.5px dashed ${C.yolk}`, background:'transparent', display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer', boxSizing:'border-box' },
 
-  // Logging panel
-  loggingPanel: { background:C.panelLight, borderTopLeftRadius:32, borderTopRightRadius:32, padding:'14px 18px 24px', boxShadow:'0 -10px 28px -16px rgba(74,63,42,0.25), 0 -1px 0 rgba(44,36,22,0.06)', borderTop:'1px solid rgba(255,255,255,0.7)', display:'flex', flexDirection:'column', gap:0, marginTop:'auto', position:'sticky', bottom:0 },
-  panelHandle: { width:38, height:4, borderRadius:99, background:C.line, margin:'-2px auto 14px' },
+  // Logging panel — anchored at bottom, never dismissible via swipe
+  loggingPanel: { background:C.panelLight, borderTopLeftRadius:32, borderTopRightRadius:32, padding:'14px 18px 24px', boxShadow:'0 -10px 28px -16px rgba(74,63,42,0.25), 0 -1px 0 rgba(44,36,22,0.06)', borderTop:'1px solid rgba(255,255,255,0.7)', display:'flex', flexDirection:'column', gap:0, flexShrink:0, touchAction:'pan-y' },
+  panelHandle: { width:38, height:4, borderRadius:99, background:C.line, margin:'-2px auto 14px', touchAction:'none' },
   exerciseName: { fontSize:24, fontWeight:900, color:C.ink, letterSpacing:-0.6, lineHeight:1 },
   lastTime: { fontSize:12.5, fontWeight:800, color:C.yolkDeep, marginTop:7, display:'flex', alignItems:'center', gap:5 },
 
@@ -745,8 +759,9 @@ const S = {
   numPadLabel: { fontSize:10.5, fontWeight:800, letterSpacing:1.6, textTransform:'uppercase', color:C.grey, textAlign:'center', marginBottom:8 },
   numPadDisplay: { fontSize:48, fontWeight:900, color:C.ink, letterSpacing:-2, textAlign:'center', lineHeight:1, marginBottom:16, fontVariantNumeric:'tabular-nums', minHeight:58 },
   numPadGrid: { display:'grid', gridTemplateColumns:'repeat(3, 1fr)', gap:8, marginBottom:12 },
-  numPadKey: { height:72, borderRadius:16, background:C.panel, border:`1px solid ${C.line}`, fontSize:26, fontWeight:800, color:C.ink, cursor:'pointer', fontFamily:FONT, display:'flex', alignItems:'center', justifyContent:'center', boxShadow:'0 1px 0 rgba(255,255,255,0.55) inset' },
+  numPadKey: { height:72, borderRadius:16, background:C.panel, border:`1px solid ${C.line}`, fontSize:26, fontWeight:800, color:C.ink, cursor:'pointer', fontFamily:FONT, display:'flex', alignItems:'center', justifyContent:'center', boxShadow:'0 1px 0 rgba(255,255,255,0.55) inset', userSelect:'none', WebkitUserSelect:'none' },
   numPadKeyBackspace: { background:C.bg, fontSize:16 },
+  numPadKeyPressed: { background:C.line, boxShadow:'none' },
   numPadActions: { display:'flex', gap:10, marginTop:4 },
   numPadClear: { flex:1, height:56, borderRadius:16, background:C.panel, border:`1.5px solid ${C.line}`, fontSize:16, fontWeight:800, color:C.ink, cursor:'pointer', fontFamily:FONT },
   numPadDone: { flex:2, height:56, borderRadius:16, background:C.yolk, border:'none', fontSize:17, fontWeight:900, color:C.ink, cursor:'pointer', fontFamily:FONT, boxShadow:'0 1px 0 rgba(255,255,255,0.6) inset, 0 8px 20px -8px rgba(245,197,24,0.6)' },

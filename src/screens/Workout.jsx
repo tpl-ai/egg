@@ -209,6 +209,14 @@ function ValueField({ value, unit, onTap, muted }) {
   );
 }
 
+// ─── Group category helpers (used in both WorkoutScreen and AddExercisePanel) ──
+const STRETCH_GROUPS = new Set(['Warm-up', 'Cool-down', 'Stretching', 'Mobility', 'Flexibility']);
+const CARDIO_GROUPS  = new Set(['Cardio', 'HIIT', 'Running', 'Conditioning', 'Cardio/Conditioning']);
+
+function isDurationGroup(groupName) {
+  return CARDIO_GROUPS.has(groupName) || STRETCH_GROUPS.has(groupName);
+}
+
 // ─── Main screen ─────────────────────────────────────────────────────────────
 export default function WorkoutScreen({ sessionConfig, data, onFinish }) {
   const [groups, setGroups] = useState(() =>
@@ -299,6 +307,12 @@ export default function WorkoutScreen({ sessionConfig, data, onFinish }) {
         }),
       } : g
     ));
+    if (activeExercise?.id === exerciseId) {
+      setActiveExercise(prev => ({
+        ...prev,
+        sets: prev.sets.map((s, i) => i === setIndex ? { ...s, completed: !s.completed } : s),
+      }));
+    }
   };
 
   const addSet = (groupName, exerciseId) => {
@@ -312,6 +326,12 @@ export default function WorkoutScreen({ sessionConfig, data, onFinish }) {
         }),
       } : g
     ));
+    if (activeExercise?.id === exerciseId) {
+      setActiveExercise(prev => {
+        const last = prev.sets[prev.sets.length - 1] || { weight: '', reps: '', duration: '' };
+        return { ...prev, sets: [...prev.sets, { ...last, completed: false }] };
+      });
+    }
   };
 
   const markDone = (groupName, exerciseId) => {
@@ -329,12 +349,19 @@ export default function WorkoutScreen({ sessionConfig, data, onFinish }) {
 
   const addExercise = (name, groupName) => {
     const lp = data?.exercises?.[name];
+    const useDuration = isDurationGroup(groupName);
     const ex = {
       id: `${groupName}-${Date.now()}`,
       name, status: 'pending',
-      weight: lp?.lastWeight?.toString() || '',
-      reps: lp?.lastReps?.toString() || '',
-      sets: [{ weight: lp?.lastWeight?.toString() || '', reps: '', completed: false }],
+      type: useDuration ? 'duration' : 'strength',
+      weight: useDuration ? null : (lp?.lastWeight?.toString() || ''),
+      reps: useDuration ? null : (lp?.lastReps?.toString() || ''),
+      duration: useDuration ? '' : null, // null → kg/reps mode; '' → duration mode
+      bodyweight: null,
+      sets: [useDuration
+        ? { duration: '', completed: false }
+        : { weight: lp?.lastWeight?.toString() || '', reps: '', completed: false }
+      ],
     };
     setGroups(prev => prev.map(g =>
       g.name === groupName ? { ...g, exercises: [...g.exercises, ex] } : g
@@ -406,7 +433,7 @@ export default function WorkoutScreen({ sessionConfig, data, onFinish }) {
           <div key={group.name} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             <div style={S.groupCaps}>{group.name.toUpperCase()}</div>
             <div style={S.slotsGrid}>
-              {group.exercises.slice(0, 4).map(exercise => {
+              {group.exercises.map(exercise => {
                 const sq = squaresData.find(s => s.id === exercise.id);
                 const isActive = activeExercise?.id === exercise.id;
                 const isDone = exercise.status === 'done';
@@ -588,8 +615,7 @@ export default function WorkoutScreen({ sessionConfig, data, onFinish }) {
 }
 
 // ─── Add Exercise Panel ───────────────────────────────────────────────────────
-const STRETCH_GROUPS = new Set(['Warm-up', 'Cool-down', 'Stretching', 'Mobility', 'Flexibility']);
-const CARDIO_GROUPS  = new Set(['Cardio', 'HIIT', 'Running', 'Conditioning', 'Cardio/Conditioning']);
+
 
 function categorise(g) {
   if (CARDIO_GROUPS.has(g)) return 'Cardio';

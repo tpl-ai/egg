@@ -9,17 +9,24 @@ const TIME_OPTIONS = [
   { label: '60+', value: 60 },
 ];
 
-export default function HomeScreen({ data, onSessionStart }) {
+export default function HomeScreen({ data, driveLoading, onSessionStart }) {
   const [selectedTime, setSelectedTime] = useState(45);
   const [isNewChat, setIsNewChat] = useState(false);
   const [pasteValue, setPasteValue] = useState('');
   const [copied, setCopied] = useState(false);
   const [parseError, setParseError] = useState('');
+  const [showPreview, setShowPreview] = useState(false);
 
-  const handleCopy = async () => {
+  const buildPrompt = () => {
     const prompt = isNewChat
       ? buildFullHandoff(data, selectedTime)
       : buildDailyBriefing(data, selectedTime);
+    console.log('Sessions loaded:', data?.sessions?.length);
+    return prompt;
+  };
+
+  const handleCopy = async () => {
+    const prompt = buildPrompt();
 
     try {
       await navigator.clipboard.writeText(prompt);
@@ -62,6 +69,13 @@ export default function HomeScreen({ data, onSessionStart }) {
 
   return (
     <div style={styles.container}>
+      {/* Drive loading banner */}
+      {driveLoading && (
+        <div style={styles.driveLoadingBanner}>
+          Loading your history…
+        </div>
+      )}
+
       {/* Header */}
       <div style={styles.header}>
         <div style={styles.logo}>
@@ -110,10 +124,15 @@ export default function HomeScreen({ data, onSessionStart }) {
         </div>
       </div>
 
-      {/* Copy Button */}
-      <button style={styles.copyBtn} onClick={handleCopy}>
-        {copied ? '✓ Copied!' : 'Copy prompt for AI'}
-      </button>
+      {/* Copy Button + Preview */}
+      <div style={styles.copyRow}>
+        <button style={styles.copyBtn} onClick={handleCopy}>
+          {copied ? '✓ Copied!' : 'Copy prompt for AI'}
+        </button>
+        <button style={styles.previewBtn} onClick={() => setShowPreview(true)}>
+          Preview
+        </button>
+      </div>
 
       {/* Paste Area */}
       <textarea
@@ -138,6 +157,19 @@ export default function HomeScreen({ data, onSessionStart }) {
       >
         Let's go →
       </button>
+
+      {/* Preview Modal */}
+      {showPreview && (
+        <div style={styles.previewOverlay} onClick={() => setShowPreview(false)}>
+          <div style={styles.previewModal} onClick={e => e.stopPropagation()}>
+            <div style={styles.previewHeader}>
+              <span style={styles.previewTitle}>Prompt Preview</span>
+              <button style={styles.previewClose} onClick={() => setShowPreview(false)}>✕</button>
+            </div>
+            <pre style={styles.previewText}>{buildPrompt()}</pre>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -150,6 +182,16 @@ const styles = {
     display: 'flex',
     flexDirection: 'column',
     gap: '16px',
+  },
+  driveLoadingBanner: {
+    background: theme.colors.panel,
+    borderRadius: theme.radius.md,
+    padding: '8px 14px',
+    fontSize: '13px',
+    color: theme.colors.grey,
+    fontWeight: '600',
+    textAlign: 'center',
+    marginTop: '-4px',
   },
   header: {
     display: 'flex',
@@ -263,8 +305,13 @@ const styles = {
     paddingLeft: '28px',
     lineHeight: 1.4,
   },
+  copyRow: {
+    display: 'flex',
+    gap: '8px',
+    alignItems: 'stretch',
+  },
   copyBtn: {
-    width: '100%',
+    flex: 1,
     background: theme.colors.yellow,
     color: theme.colors.charcoal,
     border: 'none',
@@ -275,6 +322,69 @@ const styles = {
     cursor: 'pointer',
     boxShadow: theme.shadow.sm,
     transition: 'all 0.15s ease',
+  },
+  previewBtn: {
+    flexShrink: 0,
+    background: theme.colors.panel,
+    color: theme.colors.grey,
+    border: `1.5px solid ${theme.colors.border}`,
+    borderRadius: theme.radius.lg,
+    padding: '0 14px',
+    fontSize: '13px',
+    fontWeight: '700',
+    cursor: 'pointer',
+    whiteSpace: 'nowrap',
+  },
+  previewOverlay: {
+    position: 'fixed',
+    inset: 0,
+    background: 'rgba(0,0,0,0.5)',
+    zIndex: 200,
+    display: 'flex',
+    alignItems: 'flex-end',
+  },
+  previewModal: {
+    width: '100%',
+    maxHeight: '85vh',
+    background: theme.colors.white,
+    borderTopLeftRadius: '24px',
+    borderTopRightRadius: '24px',
+    display: 'flex',
+    flexDirection: 'column',
+    overflow: 'hidden',
+  },
+  previewHeader: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: '16px 18px 12px',
+    borderBottom: `1px solid ${theme.colors.border}`,
+    flexShrink: 0,
+  },
+  previewTitle: {
+    fontSize: '15px',
+    fontWeight: '700',
+    color: theme.colors.charcoal,
+  },
+  previewClose: {
+    background: 'none',
+    border: 'none',
+    fontSize: '16px',
+    color: theme.colors.grey,
+    cursor: 'pointer',
+    padding: '4px',
+  },
+  previewText: {
+    flex: 1,
+    overflowY: 'auto',
+    padding: '14px 18px 24px',
+    fontSize: '12px',
+    lineHeight: '1.6',
+    color: theme.colors.charcoal,
+    whiteSpace: 'pre-wrap',
+    wordBreak: 'break-word',
+    margin: 0,
+    fontFamily: 'monospace',
   },
   pasteArea: {
     width: '100%',

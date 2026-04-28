@@ -28,17 +28,9 @@ Use exactly this structure:
   }
 }`;
 
-// Build the daily briefing prompt (delta - for ongoing chat)
+// Build the daily briefing prompt (delta - for ongoing chat, AI already has full context)
 export function buildDailyBriefing(data, timeAvailable) {
-  const lastSession = data.sessions?.[0];
-  const lastSessionText = lastSession
-    ? formatSessionCompact(lastSession)
-    : 'No previous sessions logged.';
-
   return `${timeAvailable} minutes today.
-
-Last session:
-${lastSessionText}
 ${JSON_FORMAT_INSTRUCTION}`;
 }
 
@@ -50,51 +42,97 @@ export function buildFullHandoff(data, timeAvailable) {
   const insights = data.insights || [];
   const exercises = data.exercises || {};
 
-  // Recent 14 days of sessions
-  const recentSessions = sessions
-    .slice(0, 14)
-    .map(formatSessionCompact)
-    .join('\n');
+  const now = new Date();
+  const fourteenDaysAgo = new Date(now); fourteenDaysAgo.setDate(now.getDate() - 14);
+  const thirtyDaysAgo   = new Date(now); thirtyDaysAgo.setDate(now.getDate() - 30);
 
-  // PRs
+  // Note header — FIX 4: confirm data is loaded
+  const sessionCount = sessions.length;
+  const noteHeader = sessionCount === 0 && Object.keys(prs).length === 0
+    ? 'Note: No workout history yet. This is my first session.'
+    : `Note: I have ${sessionCount} sessions of history loaded.`;
+
+  // 1. PROFILE
+  const profileLines = [
+    `Name: ${profile.name || 'Not set'}`,
+    `Age: ${profile.age || 'Not set'}`,
+    `Weight: ${profile.weight ? `${profile.weight}lbs` : 'Not set'}`,
+  ].join('\n');
+
+  // 2. LIFETIME BESTS — top 10 most recent PRs
   const prList = Object.entries(prs)
-    .map(([name, pr]) => 
-      `${name}: ${pr.weight}kg × ${pr.reps} (${formatDate(pr.date)})`)
+    .sort((a, b) => new Date(b[1].date || 0) - new Date(a[1].date || 0))
+    .slice(0, 10)
+    .map(([name, pr]) => `${name}: ${pr.weight}kg × ${pr.reps} (${formatDate(pr.date)})`)
     .join('\n') || 'No PRs recorded yet.';
 
-  // Exercise frequency
-  const frequent = Object.entries(exercises)
-    .filter(([, ex]) => ex.sessions >= 6)
-    .map(([name]) => name);
-  const neglected = Object.entries(exercises)
-    .filter(([, ex]) => ex.sessions <= 1)
-    .map(([name]) => name);
+  // 3. CURRENT BASELINES — last logged weight/reps per exercise
+  const baselineLines = Object.entries(exercises)
+    .filter(([, ex]) => ex.lastWeight != null || ex.lastReps != null)
+    .map(([name, ex]) => {
+      const lastDate = ex.lastPerformed ? new Date(ex.lastPerformed) : null;
+      const daysSince = lastDate ? Math.floor((now - lastDate) / 86400000) : null;
+      const stale = daysSince !== null && daysSince > 30;
+      const weight = ex.lastWeight != null ? `${ex.lastWeight}kg` : 'BW';
+      const reps = ex.lastReps != null ? `${ex.lastReps} reps` : '—';
+      const performed = ex.lastPerformed ? formatDate(ex.lastPerformed) : 'unknown';
+      return `${name}: ${weight} × ${reps} (${performed})${stale ? ' ⚠ needs recalibration' : ''}`;
+    })
+    .join('\n') || 'No exercise history yet.';
 
-  // Insights
+  // 4. RECENT SESSIONS — last 14 calendar days (not just last 14 sessions)
+  const recentSessions = sessions
+    .filter(s => s.date && new Date(s.date) >= fourteenDaysAgo)
+    .slice(0, 14)
+    .map(formatSessionCompact)
+    .join('\n') || 'No sessions in the last 14 days.';
+
+  // 5. EXERCISE FREQUENCY — counted from sessions in last 30 days
+  const recentCounts = {};
+  sessions
+    .filter(s => s.date && new Date(s.date) >= thirtyDaysAgo)
+    .forEach(session => {
+      session.groups?.forEach(g => {
+        g.exercises?.forEach(e => {
+          if (e.status === 'done') {
+            recentCounts[e.name] = (recentCounts[e.name] || 0) + 1;
+          }
+        });
+      });
+    });
+  const frequent = Object.entries(recentCounts)
+    .filter(([, c]) => c >= 6).map(([n]) => n);
+  const neglected = Object.keys(exercises)
+    .filter(n => !recentCounts[n] || recentCounts[n] <= 1);
+
+  // 6. INSIGHTS
   const insightList = insights
     .map(i => `- ${i.text}`)
     .join('\n') || '- None recorded yet.';
 
-  return `I'm starting a new EGG session. Here's my complete fitness profile:
+  return `${noteHeader}
+
+I'm starting a new EGG session. Here's my complete fitness profile:
 
 ATHLETE:
-${profile.name ? `Name: ${profile.name}` : ''}
-${profile.age ? `Age: ${profile.age}` : ''}
-${profile.weight ? `Weight: ${profile.weight}lbs` : ''}
-${profile.notes ? `Notes: ${profile.notes}` : ''}
+${profileLines}
+${profile.notes ? `\nGOALS & NOTES:\n${profile.notes}` : ''}
 
-PERSONAL RECORDS (LIFETIME BESTS):
+LIFETIME BESTS (top 10 most recent PRs):
 ${prList}
+
+CURRENT BASELINES (last logged per exercise):
+${baselineLines}
 
 PERSONAL INSIGHTS (learned over time):
 ${insightList}
 
 RECENT SESSIONS (last 14 days):
-${recentSessions || 'No sessions yet — this is my first session.'}
+${recentSessions}
 
-EXERCISE FREQUENCY:
-${frequent.length > 0 ? `Frequent (may need variety): ${frequent.join(', ')}` : ''}
-${neglected.length > 0 ? `Neglected (consider including): ${neglected.join(', ')}` : ''}
+EXERCISE FREQUENCY (last 30 days):
+${frequent.length > 0 ? `Frequent (6+ times, may need variety): ${frequent.join(', ')}` : 'No exercises done 6+ times in last 30 days.'}
+${neglected.length > 0 ? `Neglected (0-1 times, consider including): ${neglected.slice(0, 15).join(', ')}` : ''}
 
 TODAY: ${timeAvailable} minutes available.
 

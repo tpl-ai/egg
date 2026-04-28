@@ -35,6 +35,7 @@ function EggApp() {
   const [accessToken, setAccessToken] = useState(null);
   const [data, setData] = useState(getDefaultData());
   const [loading, setLoading] = useState(true);
+  const [driveLoading, setDriveLoading] = useState(false);
   const [sessionConfig, setSessionConfig] = useState(null);
   const [completedSession, setCompletedSession] = useState(null);
   const [authError, setAuthError] = useState('');
@@ -47,14 +48,14 @@ function EggApp() {
       localStorage.setItem('egg_access', token);
       setAccessToken(token);
       setAuthError('');
-      setLoading(true);
+      setDriveLoading(true);
       try {
         const loaded = await loadData(token);
         setData(loaded);
       } catch (err) {
         console.error('Failed to load data:', err);
       }
-      setLoading(false);
+      setDriveLoading(false);
     },
     onError: (err) => {
       console.error('Login failed:', err);
@@ -63,28 +64,28 @@ function EggApp() {
     },
   });
 
-  // On mount: restore token + data from localStorage, load Drive silently if token present
+  // On mount: restore localStorage data immediately, then validate token + fetch Drive
   useEffect(() => {
     const storedToken = localStorage.getItem('egg_access');
     const savedData = localStorage.getItem('egg_data');
     if (savedData) {
       try { setData(JSON.parse(savedData)); } catch {}
     }
+    setLoading(false); // Show HomeScreen immediately with cached data
     if (storedToken) {
+      setDriveLoading(true);
       validateToken(storedToken).then(valid => {
         if (!valid) {
           localStorage.removeItem('egg_access');
-          setLoading(false);
+          setDriveLoading(false);
           return;
         }
         setAccessToken(storedToken);
         loadData(storedToken)
           .then(d => setData(d))
           .catch(() => {})
-          .finally(() => setLoading(false));
+          .finally(() => setDriveLoading(false));
       });
-    } else {
-      setLoading(false);
     }
   }, []);
 
@@ -153,6 +154,7 @@ function EggApp() {
       {screen === 'home' && (
         <HomeScreen
           data={data}
+          driveLoading={driveLoading}
           onSessionStart={handleSessionStart}
         />
       )}

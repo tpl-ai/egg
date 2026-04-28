@@ -214,6 +214,7 @@ function EggApp() {
         <HomeScreen
           data={data}
           driveLoading={driveLoading}
+          driveConnected={!!accessToken}
           onSessionStart={handleSessionStart}
         />
       )}

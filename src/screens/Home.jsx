@@ -9,7 +9,7 @@ const TIME_OPTIONS = [
   { label: '60+', value: 60 },
 ];
 
-export default function HomeScreen({ data, driveLoading, onSessionStart }) {
+export default function HomeScreen({ data, driveLoading, driveConnected, onSessionStart }) {
   const [selectedTime, setSelectedTime] = useState(45);
   const [isNewChat, setIsNewChat] = useState(false);
   const [pasteValue, setPasteValue] = useState('');
@@ -69,13 +69,6 @@ export default function HomeScreen({ data, driveLoading, onSessionStart }) {
 
   return (
     <div style={styles.container}>
-      {/* Drive loading banner */}
-      {driveLoading && (
-        <div style={styles.driveLoadingBanner}>
-          Loading your history…
-        </div>
-      )}
-
       {/* Header */}
       <div style={styles.header}>
         <div style={styles.logo}>
@@ -86,6 +79,27 @@ export default function HomeScreen({ data, driveLoading, onSessionStart }) {
           </div>
         </div>
         <button style={styles.settingsBtn} onClick={() => {}}>⚙️</button>
+      </div>
+
+      {/* History status line */}
+      <div style={styles.historyStatus}>
+        {driveLoading ? (
+          'Loading your history…'
+        ) : (() => {
+          const sessions = data?.sessions;
+          const count = sessions?.length ?? 0;
+          const icon = driveConnected ? '☁' : '○';
+          if (count === 0) return `${icon} No sessions yet — let's start!`;
+          const last = sessions[0];
+          const lastDate = last?.date
+            ? new Date(last.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+            : '';
+          const groups = last?.groups
+            ?.filter(g => g.name !== 'Warm-up' && g.name !== 'Cool-down')
+            .map(g => g.name.replace(/\s*\(.*?\)/g, '').trim())
+            .slice(0, 2).join(' + ') || '';
+          return `${icon} ${count} sessions · Last: ${lastDate}${groups ? ` — ${groups}` : ''}`;
+        })()}
       </div>
 
       {/* Time Selector */}
@@ -183,15 +197,13 @@ const styles = {
     flexDirection: 'column',
     gap: '16px',
   },
-  driveLoadingBanner: {
-    background: theme.colors.panel,
-    borderRadius: theme.radius.md,
-    padding: '8px 14px',
-    fontSize: '13px',
+  historyStatus: {
+    fontSize: '12px',
     color: theme.colors.grey,
-    fontWeight: '600',
-    textAlign: 'center',
-    marginTop: '-4px',
+    fontWeight: '500',
+    marginTop: '-8px',
+    marginBottom: '-4px',
+    letterSpacing: '0.1px',
   },
   header: {
     display: 'flex',

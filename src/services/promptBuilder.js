@@ -107,7 +107,13 @@ export function buildFullHandoff(data, timeAvailable) {
 
   // 6. INSIGHTS
   const insightList = insights
-    .map(i => `- ${i.text}`)
+    .map(i => {
+      const raw = typeof i === 'string' ? i : i.text || i.content || JSON.stringify(i);
+      return `- ${raw
+        .replace(/â€"/g, '—')
+        .replace(/â€˜/g, '\u2018')
+        .replace(/â€™/g, '\u2019')}`;
+    })
     .join('\n') || '- None recorded yet.';
 
   return `${noteHeader}
@@ -264,7 +270,8 @@ function formatSessionCompact(session) {
     .slice(0, 5)
     .join(' ') || '';
 
-  return `${formatDate(session.date)} | ${groups} | ${session.duration}min | ${exercises}`;
+  const dur = session.duration || session.totalDuration || session.time || '?';
+  return `${formatDate(session.date)} | ${groups} | ${dur}min | ${exercises}`;
 }
 
 function formatDate(dateStr) {

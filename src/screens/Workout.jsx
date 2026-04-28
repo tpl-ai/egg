@@ -711,75 +711,100 @@ export default function WorkoutScreen({ sessionConfig, data, onFinish, initialGr
 
 // ─── Add Exercise Panel ───────────────────────────────────────────────────────
 
-
-function categorise(g) {
-  if (CARDIO_GROUPS.has(g)) return 'Cardio';
-  if (STRETCH_GROUPS.has(g)) return 'Stretch';
-  return 'Weights';
-}
-
 function AddExercisePanel({ currentGroupName, data, onAdd, onClose }) {
   const [search, setSearch] = useState('');
-  const [tab, setTab] = useState(categorise(currentGroupName));
 
-  const allGroups = Object.keys(EXERCISES);
-  const tabGroups = allGroups.filter(g => categorise(g) === tab);
-  const ordered = [
-    ...tabGroups.filter(g => g === currentGroupName),
-    ...tabGroups.filter(g => g !== currentGroupName),
-  ];
+  // All exercises as a flat array with group name attached
+  const allExercises = Object.entries(EXERCISES).flatMap(([group, list]) =>
+    list.map(ex => ({ ...ex, group }))
+  );
 
-  const filtered = g => {
-    const list = EXERCISES[g] || [];
-    if (!search) return list;
-    return list.filter(e => e.name.toLowerCase().includes(search.toLowerCase()));
+  // Recent exercises from history, most recent first
+  const recentExercises = data?.exercises
+    ? Object.entries(data.exercises)
+        .filter(([, ex]) => ex.lastPerformed)
+        .sort((a, b) => new Date(b[1].lastPerformed) - new Date(a[1].lastPerformed))
+        .slice(0, 10)
+        .map(([name]) => allExercises.find(e => e.name === name) || { name, group: 'Recent' })
+    : [];
+
+  const searchResults = search
+    ? allExercises.filter(e => e.name.toLowerCase().includes(search.toLowerCase()))
+    : null;
+
+  const renderRow = (ex) => {
+    const hist = findExerciseHistory(ex.name, data);
+    let lastInfo = null;
+    if (hist) {
+      if (hist.lastWeight) lastInfo = `${hist.lastWeight}kg`;
+      else if (hist.lastReps) lastInfo = `${hist.lastReps} reps`;
+      else if (hist.lastDuration) lastInfo = `${hist.lastDuration}sec`;
+    }
+    return (
+      <button
+        key={`${ex.group}-${ex.name}`}
+        style={S.addExRow}
+        onClick={() => { onAdd(ex.name, currentGroupName); }}
+      >
+        <span style={{ fontSize: 14.5, fontWeight: 800, color: C.ink, letterSpacing: -0.2 }}>{ex.name}</span>
+        {lastInfo && <span style={{ fontSize: 11.5, fontWeight: 700, color: C.grey }}>{lastInfo}</span>}
+      </button>
+    );
   };
 
   return (
+    // Full-screen overlay — click backdrop to close
     <div style={S.addOverlay} onClick={onClose}>
-      <div style={S.addPanel} onClick={e => e.stopPropagation()}>
-        <div style={S.panelHandle} />
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+      {/* Full-screen panel */}
+      <div style={S.addFullPanel} onClick={e => e.stopPropagation()}>
+
+        {/* Header row */}
+        <div style={S.addHeader}>
           <span style={{ fontSize: 17, fontWeight: 900, color: C.ink, letterSpacing: -0.4 }}>Add Exercise</span>
           <button style={S.closeCircleBtn} onClick={onClose}><CloseSVG /></button>
         </div>
-        <div style={{ display: 'flex', gap: 6, marginBottom: 10 }}>
-          {['Weights', 'Cardio', 'Stretch'].map(t => (
-            <button key={t} style={{ flex: 1, height: 32, borderRadius: 99, background: tab === t ? C.yolk : C.panel, border: 'none', cursor: 'pointer', fontFamily: FONT, fontSize: 12, fontWeight: 800, color: tab === t ? C.ink : C.grey }} onClick={() => setTab(t)}>
-              {t}
-            </button>
-          ))}
-        </div>
-        <input
-          style={S.searchInput}
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-          placeholder="Search exercises…"
-          autoFocus
-        />
-        <div style={S.addScroll}>
-          {ordered.map(g => {
-            const list = filtered(g);
-            if (!list.length) return null;
-            return (
-              <div key={g}>
-                <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 1.4, textTransform: 'uppercase', color: C.grey, padding: '10px 2px 6px' }}>
-                  {g}{g === currentGroupName ? ' ★' : ''}
-                </div>
-                {list.map(ex => (
-                  <button key={ex.name} style={S.addExRow} onClick={() => onAdd(ex.name, currentGroupName)}>
-                    <span style={{ fontSize: 14.5, fontWeight: 800, color: C.ink, letterSpacing: -0.2 }}>{ex.name}</span>
-                    {data?.exercises?.[ex.name]?.lastWeight && (
-                      <span style={{ fontSize: 11.5, fontWeight: 700, color: C.grey }}>last: {data.exercises[ex.name].lastWeight}kg</span>
-                    )}
-                  </button>
-                ))}
-              </div>
-            );
-          })}
-          {ordered.every(g => filtered(g).length === 0) && (
-            <div style={{ textAlign: 'center', color: C.grey, fontSize: 14, padding: '24px 0' }}>No exercises found</div>
+
+        {/* Search bar */}
+        <div style={S.addSearchWrap}>
+          <span style={{ fontSize: 15, lineHeight: 1, color: C.grey, flexShrink: 0 }}>🔍</span>
+          <input
+            style={S.addSearchInput}
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            placeholder="Search exercises…"
+            autoFocus
+          />
+          {search.length > 0 && (
+            <button style={S.addSearchClear} onClick={() => setSearch('')}>✕</button>
           )}
+        </div>
+
+        {/* Scrollable results — large bottom padding keeps items above keyboard */}
+        <div style={S.addResults}>
+          {searchResults ? (
+            // Search mode: flat filtered list
+            searchResults.length === 0
+              ? <div style={{ textAlign: 'center', color: C.grey, fontSize: 14, paddingTop: 32 }}>No exercises found</div>
+              : searchResults.map(renderRow)
+          ) : (
+            // Browse mode: recent + all grouped
+            <>
+              {recentExercises.length > 0 && (
+                <div>
+                  <div style={S.addGroupLabel}>RECENT</div>
+                  {recentExercises.map(renderRow)}
+                </div>
+              )}
+              {Object.entries(EXERCISES).map(([group, list]) => (
+                <div key={group}>
+                  <div style={S.addGroupLabel}>{group.toUpperCase()}</div>
+                  {list.map(ex => renderRow({ ...ex, group }))}
+                </div>
+              ))}
+            </>
+          )}
+          {/* Spacer so last items scroll above keyboard */}
+          <div style={{ height: 300 }} />
         </div>
       </div>
     </div>
@@ -867,13 +892,17 @@ const S = {
 
   // Overlays
   overlay: { position:'fixed', inset:0, background:'rgba(44,36,22,0.4)', zIndex:100, display:'flex', alignItems:'flex-end' },
-  // Add exercise panel — sits ABOVE the logging panel (zIndex 200 vs 50)
-  addOverlay: { position:'fixed', top:0, left:0, right:0, bottom:0, background:'rgba(44,36,22,0.4)', zIndex:200, display:'flex', alignItems:'flex-end', animation:'fadeIn 200ms ease' },
-  addPanel: { background:C.panelLight, borderTopLeftRadius:32, borderTopRightRadius:32, padding:'16px 18px 26px', width:'100%', maxHeight:'85vh', display:'flex', flexDirection:'column', gap:0, animation:'slideUp 280ms ease', fontFamily:FONT },
+  // Add exercise panel — full-screen, z-index 200 (above logging panel at 50)
+  addOverlay: { position:'fixed', top:0, left:0, right:0, bottom:0, zIndex:200, animation:'fadeIn 200ms ease' },
+  addFullPanel: { position:'fixed', top:0, left:0, right:0, bottom:0, background:C.bg, display:'flex', flexDirection:'column', fontFamily:FONT },
+  addHeader: { display:'flex', alignItems:'center', justifyContent:'space-between', padding:'16px 18px 12px', borderBottom:`1px solid ${C.line}`, flexShrink:0, background:C.bg },
+  addSearchWrap: { display:'flex', alignItems:'center', gap:10, margin:'12px 18px', background:C.panel, borderRadius:14, padding:'12px 14px', flexShrink:0 },
+  addSearchInput: { flex:1, border:'none', background:'transparent', fontSize:15, fontWeight:600, color:C.ink, outline:'none', fontFamily:FONT },
+  addSearchClear: { background:'none', border:'none', color:C.grey, fontSize:14, cursor:'pointer', padding:'0 2px', fontFamily:FONT },
+  addResults: { flex:1, overflowY:'auto', WebkitOverflowScrolling:'touch', padding:'0 18px' },
+  addGroupLabel: { fontSize:10, fontWeight:800, letterSpacing:1.4, textTransform:'uppercase', color:C.grey, padding:'14px 2px 6px', flexShrink:0 },
   closeCircleBtn: { width:30, height:30, borderRadius:99, padding:0, cursor:'pointer', background:'transparent', border:`1px solid ${C.line}`, display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 },
-  searchInput: { width:'100%', padding:'11px 14px', background:C.bg, border:`1px solid ${C.line}`, borderRadius:14, fontSize:15, fontWeight:600, color:C.ink, outline:'none', boxSizing:'border-box', fontFamily:FONT, boxShadow:'inset 0 1px 0 rgba(255,255,255,0.6)', marginBottom:4 },
-  addScroll: { overflowY:'auto', flex:1 },
-  addExRow: { width:'100%', textAlign:'left', background:C.bg, border:`1px solid ${C.line}`, borderRadius:14, padding:'10px 14px', marginBottom:6, display:'flex', justifyContent:'space-between', alignItems:'center', cursor:'pointer', fontFamily:FONT, boxShadow:'0 1px 0 rgba(255,255,255,0.6) inset' },
+  addExRow: { width:'100%', textAlign:'left', background:C.panelLight, border:`1px solid ${C.line}`, borderRadius:14, padding:'11px 14px', marginBottom:6, display:'flex', justifyContent:'space-between', alignItems:'center', cursor:'pointer', fontFamily:FONT, boxShadow:'0 1px 0 rgba(255,255,255,0.6) inset', boxSizing:'border-box' },
 
   // Confirm dialog
   confirmCard: { background:C.panelLight, borderTopLeftRadius:32, borderTopRightRadius:32, padding:'28px 20px', width:'100%', display:'flex', flexDirection:'column', alignItems:'center', gap:16, fontFamily:FONT, animation:'slideUp 280ms ease' },

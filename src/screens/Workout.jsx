@@ -155,12 +155,14 @@ function NumberPad({ label, initial, onConfirm }) {
 
   const displayVal = val === '' ? '—' : val;
   // Save current val on confirm (backdrop tap or Done button)
-  const confirm = () => onConfirm(val || '0');
+  const confirm = (e) => { if (e) e.stopPropagation(); onConfirm(val || '0'); };
 
   return (
-    // Overlay fills the logging panel; tapping it saves + closes
-    <div style={S.numPadOverlay} onPointerDown={confirm}>
-      <div style={S.numPadPanel} onPointerDown={e => e.stopPropagation()}>
+    // Overlay fills the logging panel; tapping backdrop saves + closes
+    // onClick (not onPointerDown) so the React re-render from setNumPad(null)
+    // doesn't cause ghost clicks on the logging panel beneath
+    <div style={S.numPadOverlay} onClick={confirm}>
+      <div style={S.numPadPanel} onClick={e => e.stopPropagation()} onPointerDown={e => e.stopPropagation()}>
         <div style={S.numPadLabel}>{label}</div>
         <div style={S.numPadDisplay}>{displayVal}</div>
 
@@ -192,9 +194,9 @@ function NumberPad({ label, initial, onConfirm }) {
 
         <div style={S.numPadActions}>
           <button style={S.numPadClear}
-            onPointerDown={(e) => { e.preventDefault(); setVal(''); }}>Clear</button>
+            onClick={(e) => { e.stopPropagation(); setVal(''); }}>Clear</button>
           <button style={S.numPadDone}
-            onPointerDown={(e) => { e.preventDefault(); confirm(); }}>Done</button>
+            onClick={(e) => { e.stopPropagation(); confirm(); }}>Done</button>
         </div>
       </div>
     </div>
@@ -338,6 +340,7 @@ export default function WorkoutScreen({ sessionConfig, data, onFinish }) {
 
   // Prevent iOS pull-to-refresh / overscroll dismissing the panel
   useEffect(() => {
+    window.scrollTo(0, 0);
     const prev = document.body.style.overflow;
     const prevOs = document.body.style.overscrollBehavior;
     document.body.style.overflow = 'hidden';
@@ -486,7 +489,7 @@ export default function WorkoutScreen({ sessionConfig, data, onFinish }) {
   })();
 
   return (
-    <div style={{ background: C.bg, height: '100vh', maxHeight: '-webkit-fill-available', display: 'flex', flexDirection: 'column', fontFamily: FONT, overflow: 'hidden', overscrollBehavior: 'none' }}>
+    <div style={{ background: C.bg, position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, display: 'flex', flexDirection: 'column', fontFamily: FONT, overflow: 'hidden', overscrollBehavior: 'none' }}>
 
       {/* ── Header ── */}
       <div style={S.header}>

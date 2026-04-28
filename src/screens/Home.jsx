@@ -16,16 +16,6 @@ export default function HomeScreen({ data, onSessionStart }) {
   const [copied, setCopied] = useState(false);
   const [parseError, setParseError] = useState('');
 
-  const lastSession = data?.sessions?.[0];
-  const daysSince = lastSession
-    ? Math.floor((Date.now() - new Date(lastSession.date)) / 86400000)
-    : null;
-
-  const totalSessions = data?.sessions?.length || 0;
-
-  // Calculate streak
-  const streak = calculateStreak(data?.sessions || []);
-
   const handleCopy = async () => {
     const prompt = isNewChat
       ? buildFullHandoff(data, selectedTime)
@@ -70,10 +60,6 @@ export default function HomeScreen({ data, onSessionStart }) {
     }
   };
 
-  const lastHandoffDays = data?.handoff?.lastFullHandoffDate
-    ? Math.floor((Date.now() - new Date(data.handoff.lastFullHandoffDate)) / 86400000)
-    : null;
-
   return (
     <div style={styles.container}>
       {/* Header */}
@@ -86,30 +72,6 @@ export default function HomeScreen({ data, onSessionStart }) {
           </div>
         </div>
         <button style={styles.settingsBtn} onClick={() => {}}>⚙️</button>
-      </div>
-
-      {/* Last Session Card */}
-      <div style={styles.card}>
-        <div style={styles.cardLabel}>LAST SESSION</div>
-        {lastSession ? (
-          <>
-            <div style={styles.cardTitle}>
-              {daysSince === 0 ? 'Today' : daysSince === 1 ? 'Yesterday' : `${daysSince} days ago`}
-              {' — '}
-              {lastSession.groups?.map(g => g.name).join(' + ')}
-            </div>
-            <div style={styles.cardStats}>
-              <span>Streak: {streak} {streak === 1 ? 'week' : 'weeks'}</span>
-              <span style={styles.dot}>·</span>
-              <span>{totalSessions} sessions</span>
-            </div>
-          </>
-        ) : (
-          <>
-            <div style={styles.cardTitle}>No sessions yet</div>
-            <div style={styles.cardStats}>Welcome to EGG 🥚 Let's get started</div>
-          </>
-        )}
       </div>
 
       {/* Time Selector */}
@@ -141,13 +103,11 @@ export default function HomeScreen({ data, onSessionStart }) {
             onChange={e => setIsNewChat(e.target.checked)}
             style={styles.checkbox}
           />
-          <span style={styles.checkText}>New chat or first time?</span>
+          <span style={styles.checkText}>Starting a new AI chat today?</span>
         </label>
-        {lastHandoffDays !== null && (
-          <div style={styles.handoffNote}>
-            Last full handoff: {lastHandoffDays} days ago
-          </div>
-        )}
+        <div style={styles.checkSubtext}>
+          Check this when opening a fresh chat with Claude or any AI
+        </div>
       </div>
 
       {/* Copy Button */}
@@ -180,19 +140,6 @@ export default function HomeScreen({ data, onSessionStart }) {
       </button>
     </div>
   );
-}
-
-function calculateStreak(sessions) {
-  if (!sessions.length) return 0;
-  // Simple week-based streak calculation
-  const weeks = new Set(
-    sessions.map(s => {
-      const d = new Date(s.date);
-      const week = Math.floor(d.getTime() / (7 * 24 * 60 * 60 * 1000));
-      return week;
-    })
-  );
-  return weeks.size;
 }
 
 const styles = {
@@ -243,37 +190,6 @@ const styles = {
     alignItems: 'center',
     justifyContent: 'center',
     cursor: 'pointer',
-  },
-  card: {
-    background: theme.colors.panel,
-    borderRadius: theme.radius.lg,
-    padding: '16px',
-    boxShadow: theme.shadow.sm,
-  },
-  cardLabel: {
-    fontSize: '10px',
-    fontWeight: '700',
-    color: theme.colors.grey,
-    letterSpacing: '1px',
-    textTransform: 'uppercase',
-    marginBottom: '6px',
-  },
-  cardTitle: {
-    fontSize: '20px',
-    fontWeight: '700',
-    color: theme.colors.charcoal,
-    lineHeight: 1.2,
-    marginBottom: '8px',
-  },
-  cardStats: {
-    fontSize: '13px',
-    color: theme.colors.grey,
-    display: 'flex',
-    gap: '6px',
-    alignItems: 'center',
-  },
-  dot: {
-    color: theme.colors.greyLight,
   },
   section: {
     display: 'flex',
@@ -341,11 +257,11 @@ const styles = {
     fontWeight: '500',
     color: theme.colors.charcoal,
   },
-  handoffNote: {
+  checkSubtext: {
     fontSize: '12px',
     color: theme.colors.grey,
     paddingLeft: '28px',
-    fontStyle: 'italic',
+    lineHeight: 1.4,
   },
   copyBtn: {
     width: '100%',

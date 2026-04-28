@@ -29,12 +29,13 @@ function EggApp() {
   const login = useGoogleLogin({
     scope: 'https://www.googleapis.com/auth/drive.file',
     onSuccess: async (response) => {
-      setAccessToken(response.access_token);
+      const token = response.access_token;
+      localStorage.setItem('egg_access', token);
+      setAccessToken(token);
       setAuthError('');
-      // Load data from Drive
       setLoading(true);
       try {
-        const loaded = await loadData(response.access_token);
+        const loaded = await loadData(token);
         setData(loaded);
       } catch (err) {
         console.error('Failed to load data:', err);
@@ -48,16 +49,22 @@ function EggApp() {
     },
   });
 
-  // Try to restore session from localStorage
+  // On mount: restore token + data from localStorage, load Drive silently if token present
   useEffect(() => {
-    const savedToken = localStorage.getItem('egg_token');
+    const storedToken = localStorage.getItem('egg_access');
     const savedData = localStorage.getItem('egg_data');
     if (savedData) {
-      try {
-        setData(JSON.parse(savedData));
-      } catch {}
+      try { setData(JSON.parse(savedData)); } catch {}
     }
-    setLoading(false);
+    if (storedToken) {
+      setAccessToken(storedToken);
+      loadData(storedToken)
+        .then(d => setData(d))
+        .catch(() => {}) // expired token — silently fall back to local data
+        .finally(() => setLoading(false));
+    } else {
+      setLoading(false);
+    }
   }, []);
 
   // Save to localStorage as backup whenever data changes

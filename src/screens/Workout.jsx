@@ -297,6 +297,28 @@ const DURATION_EXERCISES = new Set([
   'Dead Bug', 'Bird Dog', 'Dead Hang', 'L-Sit', 'Wall Sit', 'Hollow Hold',
 ]);
 
+// Cardio exercise metadata — drives which tracking fields to show in the logging panel
+const CARDIO_META = {
+  'Running':             { trackDistance: true,  distanceUnit: 'km' },
+  'Running (outdoor)':  { trackDistance: true,  distanceUnit: 'km' },
+  'Treadmill':          { trackDistance: true,  distanceUnit: 'km' },
+  'Walking':            { trackDistance: true,  distanceUnit: 'km' },
+  'Hiking':             { trackDistance: true,  distanceUnit: 'km', trackElevation: true },
+  'Cycling (outdoor)':  { trackDistance: true,  distanceUnit: 'km' },
+  'Stationary Bike':    {},
+  'Elliptical':         { trackDistance: true,  distanceUnit: 'km' },
+  'Stairmaster':        { trackFloors: true },
+  'Stairs':             { trackFloors: true },
+  'Rowing Machine':     { trackDistance: true,  distanceUnit: 'm' },
+  'SkiErg':             { trackDistance: true,  distanceUnit: 'm' },
+  'Swimming':           { trackDistance: true,  distanceUnit: 'm' },
+  'Jump Rope':          {},
+};
+
+function getCardioMeta(name) {
+  return CARDIO_META[name] || null;
+}
+
 // Resolve effective type: name-based override > AI type > group-based
 function resolveType(exerciseName, groupName, aiType) {
   if (DURATION_EXERCISES.has(exerciseName)) return 'duration';
@@ -329,6 +351,22 @@ export default function WorkoutScreen({ sessionConfig, data, onFinish, initialGr
       .map(g => ({
         ...g,
         exercises: g.exercises.map((e, i) => {
+          const isCardioEx = CARDIO_GROUPS.has(g.name) || e.name in CARDIO_META;
+          if (isCardioEx) {
+            const meta = CARDIO_META[e.name] || {};
+            return {
+              ...e,
+              id: `${g.name}-${i}`,
+              status: 'pending',
+              type: 'duration',
+              isCardioExercise: true,
+              cardioTrackDistance: !!meta.trackDistance,
+              cardioDistanceUnit: meta.distanceUnit || null,
+              cardioTrackElevation: !!meta.trackElevation,
+              cardioTrackFloors: !!meta.trackFloors,
+              sets: [{ duration: '0', distance: '0', elevation: '0', floors: '0' }],
+            };
+          }
           const type = resolveType(e.name, g.name, e.type);
           const isDur = type === 'duration';
           return {
@@ -437,6 +475,8 @@ export default function WorkoutScreen({ sessionConfig, data, onFinish, initialGr
   };
 
   const addSet = (groupName, exerciseId) => {
+    const ex = groups.flatMap(g => g.exercises).find(e => e.id === exerciseId);
+    if (ex?.isCardioExercise) return;
     const newGroups = groups.map(g =>
       g.name === groupName ? {
         ...g,
@@ -481,18 +521,32 @@ export default function WorkoutScreen({ sessionConfig, data, onFinish, initialGr
 
   const addExercise = (name, groupName) => {
     const lp = findExerciseHistory(name, data);
-    const type = resolveType(name, groupName, null);
+    const isCardioEx = CARDIO_GROUPS.has(groupName) || name in CARDIO_META;
+    const meta = isCardioEx ? (CARDIO_META[name] || {}) : null;
+    const type = isCardioEx ? 'duration' : resolveType(name, groupName, null);
     const isDur = type === 'duration';
-    const ex = {
-      id: `${groupName}-${Date.now()}`,
-      name, status: 'pending',
-      type,
-      weight: isDur ? null : (lp?.lastWeight?.toString() || ''),
-      reps: isDur ? null : (lp?.lastReps?.toString() || ''),
-      duration: isDur ? '' : null,
-      bodyweight: null,
-      sets: [isDur ? { duration: '0' } : { weight: '0', reps: '0' }],
-    };
+    const ex = isCardioEx
+      ? {
+          id: `${groupName}-${Date.now()}`,
+          name, status: 'pending', type: 'duration',
+          isCardioExercise: true,
+          cardioTrackDistance: !!meta.trackDistance,
+          cardioDistanceUnit: meta.distanceUnit || null,
+          cardioTrackElevation: !!meta.trackElevation,
+          cardioTrackFloors: !!meta.trackFloors,
+          weight: null, reps: null, duration: null, bodyweight: null,
+          sets: [{ duration: '0', distance: '0', elevation: '0', floors: '0' }],
+        }
+      : {
+          id: `${groupName}-${Date.now()}`,
+          name, status: 'pending',
+          type,
+          weight: isDur ? null : (lp?.lastWeight?.toString() || ''),
+          reps: isDur ? null : (lp?.lastReps?.toString() || ''),
+          duration: isDur ? '' : null,
+          bodyweight: null,
+          sets: [isDur ? { duration: '0' } : { weight: '0', reps: '0' }],
+        };
     const newGroups = groups.map(g =>
       g.name === groupName ? { ...g, exercises: [...g.exercises, ex] } : g
     );
@@ -632,52 +686,86 @@ export default function WorkoutScreen({ sessionConfig, data, onFinish, initialGr
           {/* Exercise name */}
           <div style={S.exerciseName}>{activeExercise.name.toUpperCase()}</div>
 
-          {/* Sets — scrollable if many sets */}
-          <div style={S.setsScroll}>
-            {activeExercise.sets?.map((set, i) => {
-              const isDuration = activeExercise.type === 'duration' || activeExercise.duration != null;
-              const isBW = activeExercise.bodyweight === true;
-              return (
-                <div key={i} style={S.setRow}>
-                  <span style={S.setLabel}>SET {i + 1}</span>
+          {/* Cardio fields OR strength sets */}
+          {activeExercise.isCardioExercise ? (
+            <div style={S.cardioFields}>
+              <ValueField
+                value={activeExercise.sets[0]?.duration}
+                unit="min"
+                onTap={() => openPad(0, 'duration', 'DURATION (min)')}
+              />
+              {activeExercise.cardioTrackDistance && (
+                <ValueField
+                  value={activeExercise.sets[0]?.distance}
+                  unit={activeExercise.cardioDistanceUnit || 'km'}
+                  onTap={() => openPad(0, 'distance', `DISTANCE (${activeExercise.cardioDistanceUnit || 'km'})`)}
+                />
+              )}
+              {activeExercise.cardioTrackElevation && (
+                <ValueField
+                  value={activeExercise.sets[0]?.elevation}
+                  unit="m ↑"
+                  onTap={() => openPad(0, 'elevation', 'ELEVATION (m)')}
+                />
+              )}
+              {activeExercise.cardioTrackFloors && (
+                <ValueField
+                  value={activeExercise.sets[0]?.floors}
+                  unit="floors"
+                  onTap={() => openPad(0, 'floors', 'FLOORS')}
+                />
+              )}
+            </div>
+          ) : (
+            /* Sets — scrollable if many sets */
+            <div style={S.setsScroll}>
+              {activeExercise.sets?.map((set, i) => {
+                const isDuration = activeExercise.type === 'duration' || activeExercise.duration != null;
+                const isBW = activeExercise.bodyweight === true;
+                return (
+                  <div key={i} style={S.setRow}>
+                    <span style={S.setLabel}>SET {i + 1}</span>
 
-                  {isDuration ? (
-                    <ValueField
-                      value={set.duration}
-                      unit="sec"
-                      onTap={() => openPad(i, 'duration', 'DURATION (sec)')}
-                    />
-                  ) : isBW ? (
-                    <ValueField
-                      value={set.reps}
-                      unit="reps"
-                      onTap={() => openPad(i, 'reps', 'REPS')}
-                    />
-                  ) : (
-                    <>
+                    {isDuration ? (
                       <ValueField
-                        value={set.weight}
-                        unit="kg"
-                        onTap={() => openPad(i, 'weight', 'WEIGHT (kg)')}
+                        value={set.duration}
+                        unit="sec"
+                        onTap={() => openPad(i, 'duration', 'DURATION (sec)')}
                       />
-                      <span style={S.times}>×</span>
+                    ) : isBW ? (
                       <ValueField
                         value={set.reps}
                         unit="reps"
                         onTap={() => openPad(i, 'reps', 'REPS')}
                       />
-                    </>
-                  )}
-                </div>
-              );
-            })}
-          </div>
+                    ) : (
+                      <>
+                        <ValueField
+                          value={set.weight}
+                          unit="kg"
+                          onTap={() => openPad(i, 'weight', 'WEIGHT (kg)')}
+                        />
+                        <span style={S.times}>×</span>
+                        <ValueField
+                          value={set.reps}
+                          unit="reps"
+                          onTap={() => openPad(i, 'reps', 'REPS')}
+                        />
+                      </>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
 
           {/* Actions */}
           <div style={S.panelActions}>
-            <button style={S.addSetBtn} onClick={() => addSet(activeExercise.groupName, activeExercise.id)}>
-              + set
-            </button>
+            {!activeExercise.isCardioExercise && (
+              <button style={S.addSetBtn} onClick={() => addSet(activeExercise.groupName, activeExercise.id)}>
+                + set
+              </button>
+            )}
             <button style={S.doneBtn} onClick={() => markDone(activeExercise.groupName, activeExercise.id)}>
               <span>Done</span>
               <CheckSVG size={14} strokeWidth={2.6} color={C.ink} />
@@ -860,6 +948,7 @@ const S = {
 
   // Sets list — scrollable if many sets
   setsScroll: { display:'flex', flexDirection:'column', gap:8, overflowY:'auto', flex:1, paddingBottom:4 },
+  cardioFields: { display:'flex', gap:8, flexShrink:0, flexWrap:'wrap', marginBottom:8 },
 
   // Set row
   setRow: { display:'flex', alignItems:'center', gap:8, flexShrink:0 },

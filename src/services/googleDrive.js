@@ -35,14 +35,36 @@ async function getOrCreateFolder(accessToken) {
   return folder.id;
 }
 
-// Find egg_data.json in the folder
+// Find egg_data.json anywhere in Drive (broad search to catch manually uploaded files)
 async function findDataFile(accessToken, folderId) {
-  const res = await fetch(
-    `https://www.googleapis.com/drive/v3/files?q=name='${FILE_NAME}' and '${folderId}' in parents and trashed=false`,
-    { headers: { Authorization: `Bearer ${accessToken}` } }
-  );
+  // Search specifically for files, not folders, named egg_data.json
+  const url = `https://www.googleapis.com/drive/v3/files?q=name%3D'egg_data.json'+and+mimeType!%3D'application%2Fvnd.google-apps.folder'+and+trashed%3Dfalse&fields=files(id%2Cname%2CmimeType%2Cparents)`;
+
+  const res = await fetch(url, {
+    headers: { Authorization: `Bearer ${accessToken}` }
+  });
   const data = await res.json();
-  return data.files && data.files.length > 0 ? data.files[0].id : null;
+  console.log('File search v2:', JSON.stringify(data));
+
+  if (data.files && data.files.length > 0) {
+    console.log('Found:', data.files[0].id);
+    return data.files[0].id;
+  }
+
+  // Fallback: list all files in folder
+  const url2 = `https://www.googleapis.com/drive/v3/files?q='${folderId}'+in+parents+and+mimeType!%3D'application%2Fvnd.google-apps.folder'+and+trashed%3Dfalse&fields=files(id%2Cname%2CmimeType)`;
+
+  const res2 = await fetch(url2, {
+    headers: { Authorization: `Bearer ${accessToken}` }
+  });
+  const data2 = await res2.json();
+  console.log('Folder contents:', JSON.stringify(data2));
+
+  if (data2.files && data2.files.length > 0) {
+    return data2.files[0].id;
+  }
+
+  return null;
 }
 
 // Load workout data from Drive
@@ -143,10 +165,10 @@ export function addSession(data, session) {
   // Update exercise history and PRs
   session.groups.forEach(group => {
     group.exercises.forEach(exercise => {
-      if (exercise.status === 'done' && exercise.sets) {
-        const maxWeight = Math.max(...exercise.sets.map(s => 
+      if (exercise.status === 'done' && exercise.sets && !exercise.isCardioExercise) {
+        const maxWeight = Math.max(...exercise.sets.map(s =>
           parseFloat(s.weight) || 0));
-        const maxReps = Math.max(...exercise.sets.map(s => 
+        const maxReps = Math.max(...exercise.sets.map(s =>
           parseInt(s.reps) || 0));
 
         // Update exercise frequency

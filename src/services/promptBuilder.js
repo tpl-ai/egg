@@ -175,8 +175,24 @@ export function buildSessionSummary(session) {
   session.groups.forEach(group => {
     lines.push(`${group.name}:`);
     group.exercises.forEach(exercise => {
-      if (exercise.status === 'done' && exercise.sets?.length) {
-        // Include all sets that have non-zero values (no .completed filter — removed earlier)
+      if (exercise.status !== 'done') return;
+
+      if (exercise.isCardioExercise && exercise.sets?.length) {
+        const log = exercise.sets[0];
+        const parts = [];
+        if (log.duration && log.duration !== '0') parts.push(`${log.duration}min`);
+        if (exercise.cardioTrackDistance && log.distance && log.distance !== '0')
+          parts.push(`${log.distance}${exercise.cardioDistanceUnit ? exercise.cardioDistanceUnit : ''}`);
+        if (exercise.cardioTrackElevation && log.elevation && log.elevation !== '0')
+          parts.push(`${log.elevation}m ↑`);
+        if (exercise.cardioTrackFloors && log.floors && log.floors !== '0')
+          parts.push(`${log.floors} floors`);
+        lines.push(`✓ ${exercise.name}${parts.length ? ': ' + parts.join(', ') : ''}`);
+        return;
+      }
+
+      if (exercise.sets?.length) {
+        // Include all sets that have non-zero values
         const validSets = exercise.sets.filter(s =>
           (s.duration && s.duration !== '0') ||
           (s.weight && s.weight !== '0' && s.weight !== 'BW') ||
@@ -188,7 +204,7 @@ export function buildSessionSummary(session) {
           return `${s.weight}kg × ${s.reps}`;
         }).join(', ');
         lines.push(`✓ ${exercise.name}: ${setStrs}`);
-      } else if (exercise.status === 'done') {
+      } else {
         lines.push(`✓ ${exercise.name}`);
       }
     });

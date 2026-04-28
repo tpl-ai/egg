@@ -8,6 +8,36 @@ import CompleteScreen from './screens/Complete';
 
 const CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID;
 
+// Remove exercises with no real logged data; remove empty groups
+function cleanSession(session) {
+  return {
+    ...session,
+    groups: (session.groups || [])
+      .map(group => ({
+        ...group,
+        exercises: (group.exercises || []).filter(exercise => {
+          if (!exercise.sets || exercise.sets.length === 0) return false;
+          return exercise.sets.some(set =>
+            (parseFloat(set.weight) > 0) ||
+            (parseInt(set.reps) > 0) ||
+            (parseInt(set.duration) > 0)
+          );
+        }),
+      }))
+      .filter(group => group.exercises.length > 0),
+  };
+}
+
+// One-time migration: clean all existing sessions in loaded data
+function cleanExistingSessionData(data) {
+  if (!data?.sessions) return data;
+  const cleaned = data.sessions
+    .map(s => cleanSession(s))
+    .filter(s => s.groups && s.groups.length > 0 && s.groups.some(g => g.exercises?.length > 0));
+  if (cleaned.length === data.sessions.length &&
+      cleaned.every((s, i) => s.groups.length === data.sessions[i].groups.length)) return data;
+  return { ...data, sessions: cleaned };
+}
 
 function App() {
   return (
@@ -49,8 +79,9 @@ function EggApp() {
 
       try {
         const loaded = await loadData(token);
-        console.log('Sessions loaded:', loaded?.sessions?.length);
-        setData(loaded);
+        const cleaned = cleanExistingSessionData(loaded);
+        console.log('Sessions loaded:', cleaned?.sessions?.length);
+        setData(cleaned);
       } catch (err) {
         console.error('Load error:', err);
       }
@@ -71,7 +102,7 @@ function EggApp() {
 
       const savedData = localStorage.getItem('egg_data');
       if (savedData) {
-        try { setData(JSON.parse(savedData)); } catch {}
+        try { setData(cleanExistingSessionData(JSON.parse(savedData))); } catch {}
       }
 
       // Check for unfinished workout session
@@ -97,8 +128,13 @@ function EggApp() {
 
           setAccessToken(savedToken);
           const loaded = await loadData(savedToken);
-          console.log('Sessions from saved token:', loaded?.sessions?.length);
-          setData(loaded);
+          const cleaned = cleanExistingSessionData(loaded);
+          console.log('Sessions from saved token:', cleaned?.sessions?.length);
+          setData(cleaned);
+          if (cleaned !== loaded) {
+            saveData(savedToken, cleaned).catch(() => {});
+            localStorage.setItem('egg_data', JSON.stringify(cleaned));
+          }
         } catch (err) {
           console.error('Init error:', err);
           localStorage.removeItem('egg_token');
@@ -148,9 +184,10 @@ function EggApp() {
   };
 
   const handleWorkoutFinish = async (session) => {
-    const updated = addSession(data, session);
+    const clean = cleanSession(session);
+    const updated = addSession(data, clean);
     setData(updated);
-    setCompletedSession(session);
+    setCompletedSession(clean);
     setScreen('complete');
 
     // Save to Drive if connected

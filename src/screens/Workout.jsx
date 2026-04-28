@@ -208,45 +208,50 @@ function GuidanceCard({ exercise, data }) {
   const last = data?.exercises?.[exercise.name];
   const pr   = data?.prs?.[exercise.name];
 
+  const isDuration = exercise.type === 'duration' || exercise.duration != null;
   const isBW = exercise.bodyweight === true;
-  const hasTarget = !isBW && exercise.weight != null && exercise.reps != null;
-  const hasPR = pr && pr.weight != null;
-  const hasLast = last?.lastWeight != null;
   const hasGuidance = !!exercise.guidance;
-
-  if (!hasGuidance && !hasLast && !hasTarget && !hasPR) return null;
-
-  const setsCount = exercise.sets?.length || null;
+  const hasHistory = last && (last.lastWeight != null || last.lastReps != null || last.lastDuration != null);
 
   return (
     <div style={S.guidanceCard}>
+      {/* CASE C: AI guidance always shown if present */}
       {hasGuidance && (
         <div style={S.guidanceText}>{exercise.guidance}</div>
       )}
+
       <div style={S.guidanceRows}>
-        {hasLast && (
-          <div style={S.guidanceRow}>
-            <span style={S.guidanceLabel}>Last</span>
-            <span style={S.guidanceVal}>
-              {last.lastWeight}kg × {last.lastReps}{last.lastSets ? ` × ${last.lastSets}` : ''}
-            </span>
-          </div>
-        )}
-        {hasTarget && (
-          <div style={S.guidanceRow}>
-            <span style={S.guidanceLabel}>Target</span>
-            <span style={{ ...S.guidanceVal, color: C.yolkDeep }}>
-              {exercise.weight}kg × {exercise.reps}{setsCount ? ` × ${setsCount}` : ''} ↑
-            </span>
-          </div>
-        )}
-        {hasPR && (
-          <div style={S.guidanceRow}>
-            <span style={S.guidanceLabel}>PR</span>
-            <span style={S.guidanceVal}>
-              {pr.weight}kg × {pr.reps}{pr.date ? ` (${formatPRDate(pr.date)})` : ''}
-            </span>
-          </div>
+        {hasHistory ? (
+          /* CASE A: show type-aware history */
+          <>
+            <div style={S.guidanceRow}>
+              <span style={S.guidanceLabel}>Last</span>
+              <span style={S.guidanceVal}>
+                {isDuration
+                  ? `${last.lastDuration ?? '—'}sec${last.lastSets ? ` × ${last.lastSets}` : ''}`
+                  : isBW
+                    ? `${last.lastReps ?? '—'} reps${last.lastSets ? ` × ${last.lastSets}` : ''}`
+                    : `${last.lastWeight ?? '—'}kg × ${last.lastReps ?? '—'}${last.lastSets ? ` × ${last.lastSets}` : ''}`
+                }
+              </span>
+            </div>
+            {pr && (
+              <div style={S.guidanceRow}>
+                <span style={S.guidanceLabel}>PR</span>
+                <span style={S.guidanceVal}>
+                  {isDuration
+                    ? `${pr.duration ?? pr.weight ?? '—'}sec${pr.date ? ` (${formatPRDate(pr.date)})` : ''}`
+                    : isBW
+                      ? `${pr.reps ?? '—'} reps${pr.date ? ` (${formatPRDate(pr.date)})` : ''}`
+                      : `${pr.weight ?? '—'}kg × ${pr.reps ?? '—'}${pr.date ? ` (${formatPRDate(pr.date)})` : ''}`
+                  }
+                </span>
+              </div>
+            )}
+          </>
+        ) : (
+          /* CASE B: no history */
+          <div style={S.guidanceNew}>New exercise — start light, focus on form and range of motion</div>
         )}
       </div>
     </div>
@@ -299,7 +304,6 @@ export default function WorkoutScreen({ sessionConfig, data, onFinish }) {
           weight: (e.bodyweight === true || e.weight === 0) ? 'BW' : '0',
           reps: '0',
           duration: '0',
-          completed: false,
         })),
       })),
     }))
@@ -379,39 +383,25 @@ export default function WorkoutScreen({ sessionConfig, data, onFinish }) {
     ));
   };
 
-  const markSetDone = (groupName, exerciseId, setIndex) => {
-    setGroups(prev => prev.map(g =>
-      g.name === groupName ? {
-        ...g,
-        exercises: g.exercises.map(e => {
-          if (e.id !== exerciseId) return e;
-          return { ...e, sets: e.sets.map((s, i) => i === setIndex ? { ...s, completed: !s.completed } : s) };
-        }),
-      } : g
-    ));
-    if (activeExercise?.id === exerciseId) {
-      setActiveExercise(prev => ({
-        ...prev,
-        sets: prev.sets.map((s, i) => i === setIndex ? { ...s, completed: !s.completed } : s),
-      }));
-    }
-  };
-
   const addSet = (groupName, exerciseId) => {
     setGroups(prev => prev.map(g =>
       g.name === groupName ? {
         ...g,
         exercises: g.exercises.map(e => {
           if (e.id !== exerciseId) return e;
-          const last = e.sets[e.sets.length - 1] || { weight: '', reps: '', duration: '' };
-          return { ...e, sets: [...e.sets, { ...last, completed: false }] };
+          const newSet = (e.type === 'duration' || e.duration != null)
+            ? { duration: '0' }
+            : { weight: e.bodyweight ? 'BW' : '0', reps: '0' };
+          return { ...e, sets: [...e.sets, newSet] };
         }),
       } : g
     ));
     if (activeExercise?.id === exerciseId) {
       setActiveExercise(prev => {
-        const last = prev.sets[prev.sets.length - 1] || { weight: '', reps: '', duration: '' };
-        return { ...prev, sets: [...prev.sets, { ...last, completed: false }] };
+        const newSet = (prev.type === 'duration' || prev.duration != null)
+          ? { duration: '0' }
+          : { weight: prev.bodyweight ? 'BW' : '0', reps: '0' };
+        return { ...prev, sets: [...prev.sets, newSet] };
       });
     }
   };
@@ -434,8 +424,8 @@ export default function WorkoutScreen({ sessionConfig, data, onFinish }) {
       duration: useDuration ? '' : null, // null → kg/reps mode; '' → duration mode
       bodyweight: null,
       sets: [useDuration
-        ? { duration: '0', completed: false }
-        : { weight: '0', reps: '0', completed: false }
+        ? { duration: '0' }
+        : { weight: '0', reps: '0' }
       ],
     };
     setGroups(prev => prev.map(g =>
@@ -576,31 +566,31 @@ export default function WorkoutScreen({ sessionConfig, data, onFinish }) {
           {/* Sets — scrollable if many sets */}
           <div style={S.setsScroll}>
             {activeExercise.sets?.map((set, i) => {
-              const isBW = set.weight === 'BW';
+              const isDuration = activeExercise.type === 'duration' || activeExercise.duration != null;
+              const isBW = activeExercise.bodyweight === true;
               return (
                 <div key={i} style={S.setRow}>
                   <span style={S.setLabel}>SET {i + 1}</span>
 
-                  {activeExercise.duration !== null ? (
+                  {isDuration ? (
                     <ValueField
                       value={set.duration}
                       unit="sec"
                       onTap={() => openPad(i, 'duration', 'DURATION (sec)')}
                     />
+                  ) : isBW ? (
+                    <ValueField
+                      value={set.reps}
+                      unit="reps"
+                      onTap={() => openPad(i, 'reps', 'REPS')}
+                    />
                   ) : (
                     <>
-                      {isBW ? (
-                        <div style={S.bwField}>
-                          <span style={S.valNum}>BW</span>
-                          <span style={S.valUnit}>kg</span>
-                        </div>
-                      ) : (
-                        <ValueField
-                          value={set.weight}
-                          unit="kg"
-                          onTap={() => openPad(i, 'weight', 'WEIGHT (kg)')}
-                        />
-                      )}
+                      <ValueField
+                        value={set.weight}
+                        unit="kg"
+                        onTap={() => openPad(i, 'weight', 'WEIGHT (kg)')}
+                      />
                       <span style={S.times}>×</span>
                       <ValueField
                         value={set.reps}
@@ -609,14 +599,6 @@ export default function WorkoutScreen({ sessionConfig, data, onFinish }) {
                       />
                     </>
                   )}
-
-                  <button
-                    style={{ ...S.checkBtn, ...(set.completed ? S.checkBtnDone : {}) }}
-                    onClick={() => markSetDone(activeExercise.groupName, activeExercise.id, i)}
-                    aria-label={set.completed ? 'Mark incomplete' : 'Mark complete'}
-                  >
-                    {set.completed && <CheckSVG size={14} strokeWidth={2.4} color="#fff" />}
-                  </button>
                 </div>
               );
             })}
@@ -796,6 +778,7 @@ const S = {
   guidanceRow: { display:'flex', gap:8, alignItems:'baseline' },
   guidanceLabel: { fontSize:10, fontWeight:800, letterSpacing:0.8, textTransform:'uppercase', color:C.yolkDeep, flexShrink:0, width:36 },
   guidanceVal: { fontSize:12.5, fontWeight:700, color:C.ink2 },
+  guidanceNew: { fontSize:12, fontWeight:600, color:C.ink2, fontStyle:'italic', lineHeight:1.4 },
 
   // Exercise name
   exerciseName: { fontSize:26, fontWeight:900, color:C.ink, letterSpacing:-0.7, lineHeight:1, marginBottom:14, flexShrink:0 },
@@ -812,13 +795,7 @@ const S = {
   valNum: { fontSize:22, fontWeight:900, color:C.ink, letterSpacing:-0.5, lineHeight:1, fontVariantNumeric:'tabular-nums' },
   valUnit: { fontSize:10, fontWeight:700, color:C.grey },
 
-  // BW (non-editable weight)
-  bwField: { flex:1, minWidth:0, height:54, borderRadius:14, background:C.panel, border:`1px solid ${C.line}`, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:1 },
   times: { fontSize:14, fontWeight:800, color:C.grey2, flexShrink:0 },
-
-  // Check button — 44px tap target
-  checkBtn: { width:44, height:44, borderRadius:99, border:`2px solid ${C.grey2}`, background:'transparent', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0, cursor:'pointer', padding:0 },
-  checkBtnDone: { background:C.yolk, border:`2px solid ${C.yolk}`, boxShadow:'0 4px 12px -4px rgba(245,197,24,0.55)' },
 
   // Panel actions
   panelActions: { display:'flex', gap:10, marginTop:12, flexShrink:0 },

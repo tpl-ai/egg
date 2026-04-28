@@ -8,6 +8,19 @@ import CompleteScreen from './screens/Complete';
 
 const CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID;
 
+// Validate a stored access token by calling Google's tokeninfo endpoint.
+// Returns true if valid, false if expired or invalid.
+async function validateToken(token) {
+  try {
+    const r = await fetch(
+      `https://www.googleapis.com/oauth2/v3/tokeninfo?access_token=${token}`
+    );
+    return r.ok;
+  } catch {
+    return false;
+  }
+}
+
 function App() {
   return (
     <GoogleOAuthProvider clientId={CLIENT_ID}>
@@ -28,6 +41,7 @@ function EggApp() {
 
   const login = useGoogleLogin({
     scope: 'https://www.googleapis.com/auth/drive.file',
+    redirect_uri: window.location.origin,
     onSuccess: async (response) => {
       const token = response.access_token;
       localStorage.setItem('egg_access', token);
@@ -57,11 +71,18 @@ function EggApp() {
       try { setData(JSON.parse(savedData)); } catch {}
     }
     if (storedToken) {
-      setAccessToken(storedToken);
-      loadData(storedToken)
-        .then(d => setData(d))
-        .catch(() => {}) // expired token — silently fall back to local data
-        .finally(() => setLoading(false));
+      validateToken(storedToken).then(valid => {
+        if (!valid) {
+          localStorage.removeItem('egg_access');
+          setLoading(false);
+          return;
+        }
+        setAccessToken(storedToken);
+        loadData(storedToken)
+          .then(d => setData(d))
+          .catch(() => {})
+          .finally(() => setLoading(false));
+      });
     } else {
       setLoading(false);
     }

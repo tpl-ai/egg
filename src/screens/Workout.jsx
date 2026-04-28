@@ -205,7 +205,7 @@ function NumberPad({ label, initial, onConfirm }) {
 
 // ─── AI Guidance Card ────────────────────────────────────────────────────────
 function GuidanceCard({ exercise, data }) {
-  const last = data?.exercises?.[exercise.name];
+  const last = findExerciseHistory(exercise.name, data);
   const pr   = data?.prs?.[exercise.name];
 
   const isDuration = exercise.type === 'duration' || exercise.duration != null;
@@ -291,28 +291,65 @@ function isDurationGroup(groupName) {
   return CARDIO_GROUPS.has(groupName) || STRETCH_GROUPS.has(groupName);
 }
 
-// ─── Main screen ─────────────────────────────────────────────────────────────
-export default function WorkoutScreen({ sessionConfig, data, onFinish }) {
-  const [groups, setGroups] = useState(() =>
-    sessionConfig.parsed.groups.map(g => ({
-      ...g,
-      exercises: g.exercises.map((e, i) => ({
-        ...e,
-        id: `${g.name}-${i}`,
-        status: 'pending',
-        sets: Array(e.sets || 3).fill(null).map(() => ({
-          weight: (e.bodyweight === true || e.weight === 0) ? 'BW' : '0',
-          reps: '0',
-          duration: '0',
-        })),
-      })),
-    }))
+// Exercises that are always duration-type regardless of AI response or group
+const DURATION_EXERCISES = new Set([
+  'Plank', 'Side Plank', 'Side Plank (Left)', 'Side Plank (Right)',
+  'Dead Bug', 'Bird Dog', 'Dead Hang', 'L-Sit', 'Wall Sit', 'Hollow Hold',
+]);
+
+// Resolve effective type: name-based override > AI type > group-based
+function resolveType(exerciseName, groupName, aiType) {
+  if (DURATION_EXERCISES.has(exerciseName)) return 'duration';
+  if (isDurationGroup(groupName)) return 'duration';
+  return aiType || 'strength';
+}
+
+// Case-insensitive + partial-match lookup in data.exercises (FIX 3)
+function findExerciseHistory(name, data) {
+  if (!data?.exercises) return null;
+  if (data.exercises[name]) return data.exercises[name];
+  const lower = name.toLowerCase();
+  const exact = Object.keys(data.exercises).find(k => k.toLowerCase() === lower);
+  if (exact) return data.exercises[exact];
+  const partial = Object.keys(data.exercises).find(k =>
+    k.toLowerCase().includes(lower) || lower.includes(k.toLowerCase())
   );
+  if (partial) return data.exercises[partial];
+  return null;
+}
+
+// ─── Main screen ─────────────────────────────────────────────────────────────
+export default function WorkoutScreen({ sessionConfig, data, onFinish, initialGroups, onExerciseDone }) {
+  const [groups, setGroups] = useState(() => {
+    // Use restored groups if provided (resuming an unfinished session)
+    if (initialGroups) return initialGroups;
+    // Filter out Cool-down group (FIX 7) and build initial state
+    return sessionConfig.parsed.groups
+      .filter(g => g.name !== 'Cool-down')
+      .map(g => ({
+        ...g,
+        exercises: g.exercises.map((e, i) => {
+          const type = resolveType(e.name, g.name, e.type);
+          const isDur = type === 'duration';
+          return {
+            ...e,
+            id: `${g.name}-${i}`,
+            status: 'pending',
+            type,
+            sets: Array(e.sets || 3).fill(null).map(() =>
+              isDur
+                ? { duration: '0' }
+                : { weight: (e.bodyweight === true || e.weight === 0) ? 'BW' : '0', reps: '0' }
+            ),
+          };
+        }),
+      }));
+  });
 
   const [activeExercise, setActiveExercise] = useState(null);
   const [showAddExercise, setShowAddExercise] = useState(false);
-  const [showFinishConfirm, setShowFinishConfirm] = useState(false);
   const [elapsed, setElapsed] = useState(0);
+  const [saveStatus, setSaveStatus] = useState(''); // '' | 'saving' | 'saved'
   // numPad: { setIndex, field, label, value } | null
   const [numPad, setNumPad] = useState(null);
 
@@ -361,18 +398,32 @@ export default function WorkoutScreen({ sessionConfig, data, onFinish }) {
   };
 
   // ── Helpers ────────────────────────────────────────────────────────────────
+  const saveToLocal = (updatedGroups) => {
+    const sessionData = {
+      date: sessionConfig.date,
+      groups: updatedGroups,
+      duration: Math.floor(elapsed / 60),
+      savedAt: new Date().toISOString(),
+      parsed: sessionConfig.parsed,
+      timeAvailable: sessionConfig.timeAvailable,
+    };
+    localStorage.setItem('egg_current_session', JSON.stringify(sessionData));
+  };
+
   const updateExercise = (groupName, exerciseId, updates) => {
-    setGroups(prev => prev.map(g =>
+    const newGroups = groups.map(g =>
       g.name === groupName
         ? { ...g, exercises: g.exercises.map(e => e.id === exerciseId ? { ...e, ...updates } : e) }
         : g
-    ));
+    );
+    setGroups(newGroups);
+    saveToLocal(newGroups);
     if (activeExercise?.id === exerciseId)
       setActiveExercise(prev => ({ ...prev, ...updates }));
   };
 
   const updateSet = (groupName, exerciseId, setIndex, field, value) => {
-    setGroups(prev => prev.map(g =>
+    const newGroups = groups.map(g =>
       g.name === groupName ? {
         ...g,
         exercises: g.exercises.map(e => {
@@ -380,11 +431,13 @@ export default function WorkoutScreen({ sessionConfig, data, onFinish }) {
           return { ...e, sets: e.sets.map((s, i) => i === setIndex ? { ...s, [field]: value } : s) };
         }),
       } : g
-    ));
+    );
+    setGroups(newGroups);
+    saveToLocal(newGroups);
   };
 
   const addSet = (groupName, exerciseId) => {
-    setGroups(prev => prev.map(g =>
+    const newGroups = groups.map(g =>
       g.name === groupName ? {
         ...g,
         exercises: g.exercises.map(e => {
@@ -395,7 +448,9 @@ export default function WorkoutScreen({ sessionConfig, data, onFinish }) {
           return { ...e, sets: [...e.sets, newSet] };
         }),
       } : g
-    ));
+    );
+    setGroups(newGroups);
+    saveToLocal(newGroups);
     if (activeExercise?.id === exerciseId) {
       setActiveExercise(prev => {
         const newSet = (prev.type === 'duration' || prev.duration != null)
@@ -407,43 +462,52 @@ export default function WorkoutScreen({ sessionConfig, data, onFinish }) {
   };
 
   const markDone = (groupName, exerciseId) => {
-    updateExercise(groupName, exerciseId, { status: 'done' });
-    // Don't auto-advance — user taps whichever square they want next
+    const newGroups = groups.map(g =>
+      g.name === groupName
+        ? { ...g, exercises: g.exercises.map(e => e.id === exerciseId ? { ...e, status: 'done' } : e) }
+        : g
+    );
+    setGroups(newGroups);
+    saveToLocal(newGroups);
     setActiveExercise(null);
+    // Optionally save to Drive (passed from App.jsx)
+    if (onExerciseDone) {
+      setSaveStatus('saving');
+      Promise.resolve(onExerciseDone({ groups: newGroups, duration: Math.floor(elapsed / 60), date: sessionConfig.date }))
+        .then(() => { setSaveStatus('saved'); setTimeout(() => setSaveStatus(''), 2000); })
+        .catch(() => setSaveStatus(''));
+    }
   };
 
   const addExercise = (name, groupName) => {
-    const lp = data?.exercises?.[name];
-    const useDuration = isDurationGroup(groupName);
+    const lp = findExerciseHistory(name, data);
+    const type = resolveType(name, groupName, null);
+    const isDur = type === 'duration';
     const ex = {
       id: `${groupName}-${Date.now()}`,
       name, status: 'pending',
-      type: useDuration ? 'duration' : 'strength',
-      weight: useDuration ? null : (lp?.lastWeight?.toString() || ''),
-      reps: useDuration ? null : (lp?.lastReps?.toString() || ''),
-      duration: useDuration ? '' : null, // null → kg/reps mode; '' → duration mode
+      type,
+      weight: isDur ? null : (lp?.lastWeight?.toString() || ''),
+      reps: isDur ? null : (lp?.lastReps?.toString() || ''),
+      duration: isDur ? '' : null,
       bodyweight: null,
-      sets: [useDuration
-        ? { duration: '0' }
-        : { weight: '0', reps: '0' }
-      ],
+      sets: [isDur ? { duration: '0' } : { weight: '0', reps: '0' }],
     };
-    setGroups(prev => prev.map(g =>
+    const newGroups = groups.map(g =>
       g.name === groupName ? { ...g, exercises: [...g.exercises, ex] } : g
-    ));
+    );
+    setGroups(newGroups);
+    saveToLocal(newGroups);
     setShowAddExercise(false);
     setActiveExercise({ ...ex, groupName });
   };
 
-  const handleFinish = () => {
-    const hasCooldown = groups.some(g => g.name === 'Cool-down');
-    const cooldownDone = groups.find(g => g.name === 'Cool-down')?.exercises.some(e => e.status === 'done');
-    if (hasCooldown && !cooldownDone) setShowFinishConfirm(true);
-    else finishSession();
-  };
+  const handleFinish = () => finishSession();
 
-  const finishSession = () =>
+  const finishSession = () => {
+    localStorage.removeItem('egg_current_session');
     onFinish({ groups, duration: Math.floor(elapsed / 60), date: sessionConfig.date });
+  };
 
   // Open number pad
   const openPad = (setIndex, field, label) => {
@@ -488,6 +552,11 @@ export default function WorkoutScreen({ sessionConfig, data, onFinish }) {
           <span style={S.headerTitle}>{workoutTitle}</span>
         </div>
         <div style={S.headerRight}>
+          {saveStatus && (
+            <span style={{ fontSize: 11, fontWeight: 700, color: saveStatus === 'saved' ? C.yolkDeep : C.grey }}>
+              {saveStatus === 'saving' ? 'Saving…' : 'Saved ✓'}
+            </span>
+          )}
           <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
             <span style={S.timerDot} />
             <span style={S.timer}>{formatTime(elapsed)}</span>
@@ -636,25 +705,6 @@ export default function WorkoutScreen({ sessionConfig, data, onFinish }) {
         />
       )}
 
-      {/* ── Finish Confirm ── */}
-      {showFinishConfirm && (
-        <div style={S.overlay}>
-          <div style={S.confirmCard}>
-            <div style={{ fontSize: 40 }}>🥚</div>
-            <div style={S.confirmText}>
-              Almost done — stretches take 4 minutes and your body will thank you tomorrow.
-            </div>
-            <button style={S.stretchBtn} onClick={() => {
-              setShowFinishConfirm(false);
-              const cooldown = groups.find(g => g.name === 'Cool-down');
-              if (cooldown?.exercises[0]) setActiveExercise({ ...cooldown.exercises[0], groupName: 'Cool-down' });
-            }}>
-              Let's stretch
-            </button>
-            <button style={S.finishAnywayBtn} onClick={finishSession}>Finish anyway</button>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
@@ -686,7 +736,7 @@ function AddExercisePanel({ currentGroupName, data, onAdd, onClose }) {
   };
 
   return (
-    <div style={{ ...S.overlay, background: 'rgba(44,36,22,0.22)', animation: 'fadeIn 200ms ease' }} onClick={onClose}>
+    <div style={S.addOverlay} onClick={onClose}>
       <div style={S.addPanel} onClick={e => e.stopPropagation()}>
         <div style={S.panelHandle} />
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
@@ -817,6 +867,8 @@ const S = {
 
   // Overlays
   overlay: { position:'fixed', inset:0, background:'rgba(44,36,22,0.4)', zIndex:100, display:'flex', alignItems:'flex-end' },
+  // Add exercise panel — sits ABOVE the logging panel (zIndex 200 vs 50)
+  addOverlay: { position:'fixed', top:0, left:0, right:0, bottom:0, background:'rgba(44,36,22,0.4)', zIndex:200, display:'flex', alignItems:'flex-end', animation:'fadeIn 200ms ease' },
   addPanel: { background:C.panelLight, borderTopLeftRadius:32, borderTopRightRadius:32, padding:'16px 18px 26px', width:'100%', maxHeight:'85vh', display:'flex', flexDirection:'column', gap:0, animation:'slideUp 280ms ease', fontFamily:FONT },
   closeCircleBtn: { width:30, height:30, borderRadius:99, padding:0, cursor:'pointer', background:'transparent', border:`1px solid ${C.line}`, display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 },
   searchInput: { width:'100%', padding:'11px 14px', background:C.bg, border:`1px solid ${C.line}`, borderRadius:14, fontSize:15, fontWeight:600, color:C.ink, outline:'none', boxSizing:'border-box', fontFamily:FONT, boxShadow:'inset 0 1px 0 rgba(255,255,255,0.6)', marginBottom:4 },

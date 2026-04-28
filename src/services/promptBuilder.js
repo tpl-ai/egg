@@ -160,28 +160,36 @@ ${JSON_FORMAT_INSTRUCTION}`;
 
 // Build session summary for end of workout
 export function buildSessionSummary(session) {
+  console.log('Building summary for:', JSON.stringify(session, null, 2));
+
+  if (!session?.groups?.length) {
+    return 'No exercises logged — nothing to copy';
+  }
+
+  const dur = session.duration || session.totalDuration || session.time || '?';
   const lines = [];
   lines.push(`Session complete:`);
-  lines.push(`${formatDate(session.date)} — ${session.groups.map(g => g.name).join(' + ')} — ${session.duration}min`);
+  lines.push(`${formatDate(session.date)} — ${session.groups.map(g => g.name).join(' + ')} — ${dur}min`);
   lines.push('');
 
   session.groups.forEach(group => {
     lines.push(`${group.name}:`);
     group.exercises.forEach(exercise => {
-      if (exercise.status === 'done' && exercise.sets) {
-        const sets = exercise.sets
-          .filter(s => s.completed)
-          .map(s => {
-            if (s.duration) return `${s.duration}sec`;
-            return `${s.weight}kg × ${s.reps}`;
-          })
-          .join(', ');
-        const delta = exercise.delta ? ` ${exercise.delta}` : '';
-        lines.push(`✓ ${exercise.name}: ${sets}${delta}`);
-      } else if (exercise.status === 'unavailable') {
-        lines.push(`⊘ ${exercise.name}: machine unavailable`);
-      } else if (exercise.status === 'skipped') {
-        lines.push(`○ ${exercise.name}: skipped`);
+      if (exercise.status === 'done' && exercise.sets?.length) {
+        // Include all sets that have non-zero values (no .completed filter — removed earlier)
+        const validSets = exercise.sets.filter(s =>
+          (s.duration && s.duration !== '0') ||
+          (s.weight && s.weight !== '0' && s.weight !== 'BW') ||
+          (s.reps && s.reps !== '0')
+        );
+        const setStrs = (validSets.length ? validSets : exercise.sets).map(s => {
+          if (s.duration && s.duration !== '0') return `${s.duration}sec`;
+          if (s.weight === 'BW') return `BW × ${s.reps}`;
+          return `${s.weight}kg × ${s.reps}`;
+        }).join(', ');
+        lines.push(`✓ ${exercise.name}: ${setStrs}`);
+      } else if (exercise.status === 'done') {
+        lines.push(`✓ ${exercise.name}`);
       }
     });
     lines.push('');

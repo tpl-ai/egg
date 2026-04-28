@@ -4,15 +4,20 @@ import { buildSessionSummary } from '../services/promptBuilder';
 
 export default function CompleteScreen({ session, onDone }) {
   const [copied, setCopied] = useState(false);
+  const [copiedChars, setCopiedChars] = useState(0);
 
-  const totalExercises = session.groups.flatMap(g => g.exercises).length;
-  const doneExercises = session.groups.flatMap(g => g.exercises)
-    .filter(e => e.status === 'done').length;
-  const skipped = session.groups.flatMap(g => g.exercises)
-    .filter(e => e.status === 'unavailable' || e.status === 'skipped').length;
+  const totalExercises = session.groups?.flatMap(g => g.exercises).length ?? 0;
+  const doneExercises = session.groups?.flatMap(g => g.exercises)
+    .filter(e => e.status === 'done').length ?? 0;
+  const skipped = session.groups?.flatMap(g => g.exercises)
+    .filter(e => e.status === 'unavailable' || e.status === 'skipped').length ?? 0;
 
   const handleCopy = async () => {
     const summary = buildSessionSummary(session);
+    if (summary === 'No exercises logged — nothing to copy') {
+      alert(summary);
+      return;
+    }
     try {
       await navigator.clipboard.writeText(summary);
     } catch {
@@ -23,8 +28,9 @@ export default function CompleteScreen({ session, onDone }) {
       document.execCommand('copy');
       document.body.removeChild(el);
     }
+    setCopiedChars(summary.length);
     setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    setTimeout(() => setCopied(false), 3000);
   };
 
   const groupNames = session.groups
@@ -71,7 +77,7 @@ export default function CompleteScreen({ session, onDone }) {
 
         {/* Copy button */}
         <button style={styles.copyBtn} onClick={handleCopy}>
-          {copied ? '✓ Copied!' : 'Copy session for AI'}
+          {copied ? `Copied ✓ (${copiedChars} characters)` : 'Copy session for AI'}
         </button>
 
         {/* Done button */}

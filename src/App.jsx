@@ -5,6 +5,7 @@ import { loadData, saveData, getDefaultData, addSession } from './services/googl
 import HomeScreen from './screens/Home';
 import WorkoutScreen from './screens/Workout';
 import CompleteScreen from './screens/Complete';
+import SettingsScreen from './screens/Settings';
 
 const CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID;
 
@@ -49,7 +50,7 @@ function App() {
 }
 
 function EggApp() {
-  const [screen, setScreen] = useState('home'); // home | workout | complete
+  const [screen, setScreen] = useState('home'); // home | workout | complete | settings
   const [accessToken, setAccessToken] = useState(null);
   const [data, setData] = useState(getDefaultData());
   const [loading, setLoading] = useState(true);
@@ -207,6 +208,29 @@ function EggApp() {
     setCompletedSession(null);
   };
 
+  const handleSaveProfile = (profile) => {
+    const updated = { ...data, profile };
+    setData(updated);
+    localStorage.setItem('egg_data', JSON.stringify(updated));
+    if (accessToken) {
+      saveData(accessToken, updated).catch(() => {});
+    }
+  };
+
+  const handleDisconnect = () => {
+    localStorage.removeItem('egg_token');
+    setAccessToken(null);
+  };
+
+  const handleImportData = (importedData) => {
+    const cleaned = cleanExistingSessionData(importedData);
+    setData(cleaned);
+    localStorage.setItem('egg_data', JSON.stringify(cleaned));
+    if (accessToken) {
+      saveData(accessToken, cleaned).catch(() => {});
+    }
+  };
+
   if (loading) {
     return (
       <div style={styles.loadingScreen}>
@@ -218,18 +242,6 @@ function EggApp() {
 
   return (
     <div style={styles.appWrapper}>
-      {/* Google Auth Banner - shown when not connected */}
-      {!accessToken && screen === 'home' && (
-        <div style={styles.authBanner}>
-          <div style={styles.authText}>
-            Connect Google Drive to sync across devices
-          </div>
-          <button style={styles.authBtn} onClick={() => login()}>
-            Connect
-          </button>
-        </div>
-      )}
-
       {authError && (
         <div style={styles.errorBanner}>{authError}</div>
       )}
@@ -253,6 +265,7 @@ function EggApp() {
           driveLoading={driveLoading}
           driveConnected={!!accessToken}
           onSessionStart={handleSessionStart}
+          onOpenSettings={() => setScreen('settings')}
         />
       )}
 
@@ -263,6 +276,7 @@ function EggApp() {
           onFinish={handleWorkoutFinish}
           initialGroups={pendingResume?.groups ?? null}
           onExerciseDone={handleExerciseDone}
+          onOpenSettings={() => setScreen('settings')}
         />
       )}
 
@@ -270,6 +284,18 @@ function EggApp() {
         <CompleteScreen
           session={completedSession}
           onDone={handleDone}
+        />
+      )}
+
+      {screen === 'settings' && (
+        <SettingsScreen
+          data={data}
+          accessToken={accessToken}
+          onBack={() => setScreen('home')}
+          onSave={handleSaveProfile}
+          onImportData={handleImportData}
+          onDisconnect={handleDisconnect}
+          onConnect={login}
         />
       )}
     </div>

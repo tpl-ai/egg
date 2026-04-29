@@ -3,14 +3,22 @@ import { theme } from '../styles/theme';
 import { buildDailyBriefing, buildFullHandoff, parseClaudeResponse } from '../services/promptBuilder';
 
 const TIME_OPTIONS = [
-  { label: '20', value: 20 },
-  { label: '30', value: 30 },
-  { label: '45', value: 45 },
-  { label: '60+', value: 60 },
+  { label: '30',  value: 30  },
+  { label: '60',  value: 60  },
+  { label: '90',  value: 90  },
+  { label: '120', value: 120 },
 ];
 
-export default function HomeScreen({ data, driveLoading, driveConnected, onSessionStart }) {
-  const [selectedTime, setSelectedTime] = useState(45);
+const LOCATION_OPTIONS = [
+  { label: 'Full Gym',  value: 'Full Gym'  },
+  { label: 'Hotel Gym', value: 'Hotel Gym' },
+  { label: 'Outdoor',   value: 'Outdoor'   },
+  { label: 'Home',      value: 'Home'      },
+];
+
+export default function HomeScreen({ data, driveLoading, driveConnected, onSessionStart, onOpenSettings }) {
+  const [selectedTime, setSelectedTime]         = useState(60);
+  const [selectedLocation, setSelectedLocation] = useState('Full Gym');
   const [isNewChat, setIsNewChat] = useState(false);
   const [pasteValue, setPasteValue] = useState('');
   const [copied, setCopied] = useState(false);
@@ -19,8 +27,8 @@ export default function HomeScreen({ data, driveLoading, driveConnected, onSessi
 
   const buildPrompt = () => {
     const prompt = isNewChat
-      ? buildFullHandoff(data, selectedTime)
-      : buildDailyBriefing(data, selectedTime);
+      ? buildFullHandoff(data, selectedTime, selectedLocation)
+      : buildDailyBriefing(data, selectedTime, selectedLocation);
     console.log('Sessions loaded:', data?.sessions?.length);
     return prompt;
   };
@@ -78,7 +86,7 @@ export default function HomeScreen({ data, driveLoading, driveConnected, onSessi
             <div style={styles.appSubtitle}>Everyday Gym Guru</div>
           </div>
         </div>
-        <button style={styles.settingsBtn} onClick={() => {}}>⚙️</button>
+        <button style={styles.settingsBtn} onClick={onOpenSettings}>⚙️</button>
       </div>
 
       {/* History status line */}
@@ -117,6 +125,25 @@ export default function HomeScreen({ data, driveLoading, driveConnected, onSessi
             >
               <span style={styles.timeNum}>{opt.label}</span>
               <span style={styles.timeUnit}>MIN</span>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Location Selector */}
+      <div style={styles.section}>
+        <div style={styles.sectionLabel}>Where are you?</div>
+        <div style={styles.locationRow}>
+          {LOCATION_OPTIONS.map(opt => (
+            <button
+              key={opt.value}
+              style={{
+                ...styles.locationBtn,
+                ...(selectedLocation === opt.value ? styles.locationBtnActive : {}),
+              }}
+              onClick={() => setSelectedLocation(opt.value)}
+            >
+              {opt.label}
             </button>
           ))}
         </div>
@@ -288,6 +315,28 @@ const styles = {
     fontWeight: '600',
     color: theme.colors.grey,
     letterSpacing: '0.5px',
+  },
+  locationRow: {
+    display: 'flex',
+    gap: '6px',
+  },
+  locationBtn: {
+    flex: 1,
+    background: theme.colors.panel,
+    border: '2px solid transparent',
+    borderRadius: theme.radius.full,
+    padding: '10px 4px',
+    fontSize: '12.5px',
+    fontWeight: '700',
+    color: theme.colors.charcoal,
+    cursor: 'pointer',
+    textAlign: 'center',
+    boxShadow: theme.shadow.sm,
+    whiteSpace: 'nowrap',
+  },
+  locationBtnActive: {
+    background: theme.colors.yellow,
+    border: `2px solid ${theme.colors.yellow}`,
   },
   checkRow: {
     display: 'flex',

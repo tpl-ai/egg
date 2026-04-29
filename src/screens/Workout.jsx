@@ -341,7 +341,7 @@ function findExerciseHistory(name, data) {
 }
 
 // ─── Main screen ─────────────────────────────────────────────────────────────
-export default function WorkoutScreen({ sessionConfig, data, onFinish, initialGroups, onExerciseDone }) {
+export default function WorkoutScreen({ sessionConfig, data, onFinish, initialGroups, onExerciseDone, onOpenSettings }) {
   const [groups, setGroups] = useState(() => {
     // Use restored groups if provided (resuming an unfinished session)
     if (initialGroups) return initialGroups;
@@ -502,6 +502,17 @@ export default function WorkoutScreen({ sessionConfig, data, onFinish, initialGr
   };
 
   const markDone = (groupName, exerciseId) => {
+    const exercise = groups.flatMap(g => g.exercises).find(e => e.id === exerciseId);
+    const hasData = exercise?.sets?.some(s =>
+      parseFloat(s.weight) > 0 ||
+      parseInt(s.reps) > 0 ||
+      parseInt(s.duration) > 0 ||
+      parseFloat(s.distance) > 0
+    );
+    if (!hasData) {
+      setActiveExercise(null);
+      return;
+    }
     const newGroups = groups.map(g =>
       g.name === groupName
         ? { ...g, exercises: g.exercises.map(e => e.id === exerciseId ? { ...e, status: 'done' } : e) }
@@ -615,6 +626,9 @@ export default function WorkoutScreen({ sessionConfig, data, onFinish, initialGr
             <span style={S.timerDot} />
             <span style={S.timer}>{formatTime(elapsed)}</span>
           </div>
+          {onOpenSettings && (
+            <button style={S.gearBtn} onClick={onOpenSettings} aria-label="Settings">⚙</button>
+          )}
           <button style={S.finishBtn} onClick={handleFinish}>Finish</button>
         </div>
       </div>
@@ -908,6 +922,7 @@ const S = {
   headerRight: { display:'flex', alignItems:'center', gap:8, flexShrink:0 },
   timerDot: { display:'inline-block', width:7, height:7, borderRadius:99, background:C.yolk, boxShadow:'0 0 0 4px rgba(245,197,24,0.18)', animation:'egg-pulse 1.6s ease-in-out infinite' },
   timer: { fontSize:16, fontWeight:900, color:C.yolkDeep, fontVariantNumeric:'tabular-nums', letterSpacing:-0.4 },
+  gearBtn: { fontSize:16, background:'transparent', border:'none', cursor:'pointer', padding:'4px 2px', color:C.grey, lineHeight:1 },
   finishBtn: { height:28, padding:'0 12px', borderRadius:99, background:'transparent', border:`1.5px solid ${C.coral}`, color:C.coral, fontFamily:FONT, fontSize:12, fontWeight:800, letterSpacing:0.2, cursor:'pointer', whiteSpace:'nowrap' },
 
   // Slots — scrollable, sits behind the logging panel when open

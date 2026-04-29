@@ -1,3 +1,5 @@
+import { getAllExercises } from '../data/exercises';
+
 const FOLDER_NAME = 'EGG Workouts';
 const FILE_NAME = 'egg_data.json';
 
@@ -150,6 +152,15 @@ export function getDefaultData() {
     exercises: {},
     prs: {},
     insights: [],
+    pillars: {
+      Strength:       null,
+      Cardiovascular: null,
+      Mobility:       null,
+      Flexibility:    null,
+      Balance:        null,
+      Functional:     null,
+      Recovery:       null,
+    },
     handoff: {
       lastFullHandoffDate: null,
       lastSessionCompact: null,
@@ -162,16 +173,37 @@ export function addSession(data, session) {
   const updated = { ...data };
   updated.sessions = [session, ...(data.sessions || [])];
 
-  // Update exercise history and PRs
+  // Ensure pillars object exists
+  if (!updated.pillars) {
+    updated.pillars = {
+      Strength: null, Cardiovascular: null, Mobility: null,
+      Flexibility: null, Balance: null, Functional: null, Recovery: null,
+    };
+  }
+
+  const allExerciseData = getAllExercises();
+  const pillarsWorked   = new Set();
+
+  // Update exercise history, PRs, and track pillars
   session.groups.forEach(group => {
     group.exercises.forEach(exercise => {
-      if (exercise.status === 'done' && exercise.sets && !exercise.isCardioExercise) {
+      if (exercise.status !== 'done') return;
+
+      // Track pillars for this exercise
+      const match = allExerciseData.find(e =>
+        e.name.toLowerCase() === exercise.name.toLowerCase()
+      );
+      if (match?.pillars) {
+        match.pillars.forEach(p => pillarsWorked.add(p));
+      }
+
+      // Update weight/rep history and PRs for strength exercises only
+      if (exercise.sets && !exercise.isCardioExercise) {
         const maxWeight = Math.max(...exercise.sets.map(s =>
           parseFloat(s.weight) || 0));
         const maxReps = Math.max(...exercise.sets.map(s =>
           parseInt(s.reps) || 0));
 
-        // Update exercise frequency
         if (!updated.exercises[exercise.name]) {
           updated.exercises[exercise.name] = {
             group: group.name,
@@ -186,8 +218,7 @@ export function addSession(data, session) {
         updated.exercises[exercise.name].lastWeight = maxWeight;
         updated.exercises[exercise.name].lastReps = maxReps;
 
-        // Update PRs
-        if (!updated.prs[exercise.name] || 
+        if (!updated.prs[exercise.name] ||
             maxWeight > (updated.prs[exercise.name].weight || 0)) {
           updated.prs[exercise.name] = {
             weight: maxWeight,
@@ -197,6 +228,13 @@ export function addSession(data, session) {
         }
       }
     });
+  });
+
+  // Update pillar last-worked dates
+  pillarsWorked.forEach(pillar => {
+    if (Object.prototype.hasOwnProperty.call(updated.pillars, pillar)) {
+      updated.pillars[pillar] = session.date;
+    }
   });
 
   return updated;

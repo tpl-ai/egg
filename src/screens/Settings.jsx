@@ -4,40 +4,41 @@ import { theme } from '../styles/theme';
 const T = theme.colors;
 const FONT = "'Nunito', system-ui, -apple-system, sans-serif";
 
+const SEX_OPTIONS = ['Male', 'Female', 'Prefer not to say'];
+
 export default function SettingsScreen({
-  data, accessToken, onBack, onSave, onImportData, onDisconnect, onConnect,
+  mode = 'edit', // 'setup' | 'edit'
+  data,
+  onBack,
+  onSave,
 }) {
   const profile = data?.profile || {};
-  const [name, setName]                       = useState(profile.name || '');
-  const [age, setAge]                         = useState(profile.age ? String(profile.age) : '');
-  const [weight, setWeight]                   = useState(profile.weight ? String(profile.weight) : '');
-  const [weightUnit, setWeightUnit]           = useState(profile.weightUnit || 'lbs');
-  const [notes, setNotes]                     = useState(profile.notes || '');
-  const [travelsRegularly, setTravelsRegularly] = useState(!!profile.travelsRegularly);
-  const [primaryGoal, setPrimaryGoal]         = useState(profile.primaryGoal || '');
-  const [saved, setSaved]                     = useState(false);
+  const [name, setName]               = useState(profile.name || '');
+  const [age, setAge]                 = useState(profile.age ? String(profile.age) : '');
+  const [biologicalSex, setBiologicalSex] = useState(profile.biologicalSex || '');
+  const [weight, setWeight]           = useState(profile.weight ? String(profile.weight) : '');
+  const [weightUnit, setWeightUnit]   = useState(profile.weightUnit || 'lbs');
+  const [notes, setNotes]             = useState(profile.notes || '');
+  const [disclaimerA, setDisclaimerA] = useState(false);
+  const [disclaimerB, setDisclaimerB] = useState(false);
+  const [saved, setSaved]             = useState(false);
 
-  const sessionCount = data?.sessions?.length ?? 0;
-  const lastSync = data?.lastSync
-    ? new Date(data.lastSync).toLocaleString('en-US', {
-        month: 'short', day: 'numeric',
-        hour: 'numeric', minute: '2-digit',
-      })
-    : null;
+  const isSetup = mode === 'setup';
+  const canSave = isSetup ? (disclaimerA && disclaimerB && age.trim()) : true;
 
   const handleSave = () => {
+    if (!canSave) return;
     onSave({
       ...profile,
       name: name.trim(),
       age: age ? parseInt(age) : '',
+      biologicalSex,
       weight: weight ? parseFloat(weight) : '',
       weightUnit,
       notes: notes.trim(),
-      travelsRegularly,
-      primaryGoal: primaryGoal.trim(),
     });
     setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
+    setTimeout(() => setSaved(false), 1500);
   };
 
   const handleExport = () => {
@@ -53,55 +54,68 @@ export default function SettingsScreen({
     URL.revokeObjectURL(url);
   };
 
-  const handleImport = () => {
-    const input = document.createElement('input');
-    input.type = 'file';
-    input.accept = '.json';
-    input.onchange = (e) => {
-      const file = e.target.files[0];
-      if (!file) return;
-      const reader = new FileReader();
-      reader.onload = (ev) => {
-        try {
-          const imported = JSON.parse(ev.target.result);
-          if (!imported.sessions && !imported.profile) {
-            alert('Invalid EGG data file.');
-            return;
-          }
-          onImportData(imported);
-          alert(`Imported! ${imported.sessions?.length ?? 0} sessions loaded.`);
-        } catch {
-          alert('Could not read file — make sure it is a valid egg_data.json.');
-        }
-      };
-      reader.readAsText(file);
-    };
-    document.body.appendChild(input);
-    input.click();
-    document.body.removeChild(input);
-  };
-
   return (
     <div style={S.container}>
       {/* Header */}
       <div style={S.header}>
-        <button style={S.backBtn} onClick={onBack} aria-label="Back">
-          <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
-            <path d="M12.5 5 L7.5 10 L12.5 15" stroke={T.charcoal} strokeWidth="2.2"
-              strokeLinecap="round" strokeLinejoin="round"/>
-          </svg>
-        </button>
-        <span style={S.headerTitle}>Settings</span>
+        {!isSetup ? (
+          <button style={S.backBtn} onClick={onBack} aria-label="Back">
+            <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+              <path d="M12.5 5 L7.5 10 L12.5 15" stroke={T.charcoal} strokeWidth="2.2"
+                strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+          </button>
+        ) : <div style={{ width: 36 }} />}
+        <span style={S.headerTitle}>{isSetup ? "Let's get you set up" : 'Settings'}</span>
         <div style={{ width: 36 }} />
       </div>
 
+      {isSetup && (
+        <div style={S.setupSubtitle}>Takes 2 minutes. You can update this anytime.</div>
+      )}
+
       <div style={S.scroll}>
-        {/* ── PROFILE ── */}
+
+        {/* ── DISCLAIMER (setup only) ── */}
+        {isSetup && (
+          <div style={S.section}>
+            <div style={S.sectionLabel}>BEFORE WE START</div>
+            <div style={S.disclaimerBox}>
+              <p style={S.disclaimerText}>
+                This app provides general fitness guidance only. It is not a substitute for
+                medical advice. Before starting any new exercise program, consult your doctor
+                — especially if you have heart conditions, joint problems, or haven't exercised
+                regularly in over a year. If you feel chest pain, dizziness, or severe
+                discomfort during exercise, stop immediately.
+              </p>
+            </div>
+            <label style={S.checkLabel}>
+              <input
+                type="checkbox"
+                checked={disclaimerA}
+                onChange={e => setDisclaimerA(e.target.checked)}
+                style={S.checkbox}
+              />
+              <span style={S.checkText}>I understand and agree</span>
+            </label>
+            <label style={S.checkLabel}>
+              <input
+                type="checkbox"
+                checked={disclaimerB}
+                onChange={e => setDisclaimerB(e.target.checked)}
+                style={S.checkbox}
+              />
+              <span style={S.checkText}>My data is stored on my Google Drive only</span>
+            </label>
+          </div>
+        )}
+
+        {/* ── ABOUT YOU ── */}
         <div style={S.section}>
-          <div style={S.sectionLabel}>PROFILE</div>
+          <div style={S.sectionLabel}>ABOUT YOU</div>
 
           <div style={S.field}>
-            <label style={S.label}>Name</label>
+            <label style={S.label}>Name (optional)</label>
             <input
               style={S.input}
               value={name}
@@ -112,7 +126,7 @@ export default function SettingsScreen({
 
           <div style={S.fieldRow}>
             <div style={{ ...S.field, flex: 1 }}>
-              <label style={S.label}>Age</label>
+              <label style={S.label}>{isSetup ? 'Age *' : 'Age'}</label>
               <input
                 style={S.input}
                 type="number"
@@ -149,99 +163,56 @@ export default function SettingsScreen({
           </div>
 
           <div style={S.field}>
-            <label style={S.label}>Limitations or notes for AI</label>
+            <label style={S.label}>Biological sex</label>
+            <div style={S.sexRow}>
+              {SEX_OPTIONS.map(opt => (
+                <button
+                  key={opt}
+                  style={{ ...S.sexBtn, ...(biologicalSex === opt ? S.sexBtnActive : {}) }}
+                  onClick={() => setBiologicalSex(opt)}
+                >
+                  {opt}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* ── HEALTH NOTES ── */}
+        <div style={S.section}>
+          <div style={S.sectionLabel}>HEALTH NOTES</div>
+          <div style={S.field}>
+            <label style={S.label}>Health notes & limitations</label>
             <textarea
-              style={S.textarea}
+              style={{ ...S.textarea, minHeight: '120px' }}
               value={notes}
               onChange={e => setNotes(e.target.value)}
-              placeholder="e.g. left shoulder sensitivity, avoid hamstring curls"
-              rows={3}
+              placeholder={"e.g. left shoulder sensitivity,\navoid heavy hamstring curls,\nknee surgery 2023, takes magnesium"}
+              rows={6}
             />
-          </div>
-
-          <div style={S.field}>
-            <div style={S.toggleRow}>
-              <label style={S.label}>Travel regularly?</label>
-              <button
-                style={{ ...S.toggleBtn, ...(travelsRegularly ? S.toggleBtnOn : {}) }}
-                onClick={() => setTravelsRegularly(t => !t)}
-              >
-                {travelsRegularly ? 'Yes' : 'No'}
-              </button>
-            </div>
-            <div style={S.subtext}>If yes, AI will factor in hotel gym alternatives</div>
-          </div>
-        </div>
-
-        {/* ── GOALS ── */}
-        <div style={S.section}>
-          <div style={S.sectionLabel}>GOALS</div>
-          <div style={S.field}>
-            <label style={S.label}>Primary goal</label>
-            <textarea
-              style={S.textarea}
-              value={primaryGoal}
-              onChange={e => setPrimaryGoal(e.target.value)}
-              placeholder="e.g. 7 consecutive pull-ups, build muscle, lose weight"
-              rows={2}
-            />
-          </div>
-        </div>
-
-        {/* ── GOOGLE DRIVE ── */}
-        <div style={S.section}>
-          <div style={S.sectionLabel}>GOOGLE DRIVE</div>
-          {accessToken ? (
-            <>
-              <div style={S.driveRow}>
-                <span style={{ fontSize: 20, flexShrink: 0 }}>☁</span>
-                <div>
-                  <div style={S.driveConnectedText}>
-                    Connected — {sessionCount} session{sessionCount !== 1 ? 's' : ''} synced
-                  </div>
-                  {lastSync && (
-                    <div style={S.driveSubtext}>Last sync: {lastSync}</div>
-                  )}
-                </div>
-              </div>
-              <button style={S.dangerBtn} onClick={onDisconnect}>
-                Disconnect Google Drive
-              </button>
-            </>
-          ) : (
-            <>
-              <div style={S.driveRow}>
-                <span style={{ fontSize: 18, color: T.grey, flexShrink: 0 }}>○</span>
-                <div style={S.driveSubtext}>
-                  Not connected — sessions saved locally only
-                </div>
-              </div>
-              <button style={S.connectBtn} onClick={onConnect}>
-                Connect Google Drive
-              </button>
-            </>
-          )}
-        </div>
-
-        {/* ── DATA ── */}
-        <div style={S.section}>
-          <div style={S.sectionLabel}>DATA</div>
-          <div style={S.dataRow}>
-            <button style={S.dataBtn} onClick={handleExport}>
-              <span style={{ fontWeight: 700, fontSize: 14 }}>Export data</span>
-              <span style={S.dataBtnSub}>Downloads egg_data.json</span>
-            </button>
-            <button style={S.dataBtn} onClick={handleImport}>
-              <span style={{ fontWeight: 700, fontSize: 14 }}>Import data</span>
-              <span style={S.dataBtnSub}>Upload a JSON file</span>
-            </button>
+            <div style={S.fieldHint}>The AI reads this every session — be specific.</div>
           </div>
         </div>
 
         {/* Save */}
-        <button style={{ ...S.saveBtn, ...(saved ? S.saveBtnDone : {}) }} onClick={handleSave}>
-          {saved ? 'Saved ✓' : 'Save Profile'}
+        <button
+          style={{
+            ...S.saveBtn,
+            ...(saved ? S.saveBtnDone : {}),
+            opacity: canSave ? 1 : 0.45,
+          }}
+          onClick={handleSave}
+          disabled={!canSave}
+        >
+          {saved ? 'Saved ✓' : isSetup ? 'Get started →' : 'Save profile'}
         </button>
+
+        {/* Export link (edit mode only) */}
+        {!isSetup && (
+          <button style={S.exportLink} onClick={handleExport}>
+            Export data backup
+          </button>
+        )}
 
         <div style={{ height: 48 }} />
       </div>
@@ -270,10 +241,12 @@ const S = {
     zIndex: 10,
   },
   headerTitle: {
-    fontSize: 18,
+    fontSize: 17,
     fontWeight: 800,
     color: T.charcoal,
     letterSpacing: -0.4,
+    textAlign: 'center',
+    flex: 1,
   },
   backBtn: {
     width: 36,
@@ -286,6 +259,13 @@ const S = {
     justifyContent: 'center',
     cursor: 'pointer',
     flexShrink: 0,
+  },
+  setupSubtitle: {
+    fontSize: 13,
+    color: T.grey,
+    textAlign: 'center',
+    padding: '10px 16px 4px',
+    fontWeight: 500,
   },
   scroll: {
     flex: 1,
@@ -311,6 +291,39 @@ const S = {
     textTransform: 'uppercase',
     color: T.grey,
   },
+  disclaimerBox: {
+    background: T.bg,
+    borderRadius: theme.radius.md,
+    padding: '12px 14px',
+    maxHeight: '140px',
+    overflowY: 'auto',
+    border: `1.5px solid ${T.border}`,
+  },
+  disclaimerText: {
+    fontSize: 13,
+    color: T.grey,
+    lineHeight: 1.6,
+    fontWeight: 500,
+  },
+  checkLabel: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 10,
+    cursor: 'pointer',
+  },
+  checkbox: {
+    width: 18,
+    height: 18,
+    accentColor: T.yellow,
+    cursor: 'pointer',
+    flexShrink: 0,
+  },
+  checkText: {
+    fontSize: 14,
+    fontWeight: 600,
+    color: T.charcoal,
+    lineHeight: 1.4,
+  },
   field: {
     display: 'flex',
     flexDirection: 'column',
@@ -324,6 +337,12 @@ const S = {
     fontSize: 13,
     fontWeight: 700,
     color: T.charcoal,
+  },
+  fieldHint: {
+    fontSize: 12,
+    color: T.grey,
+    lineHeight: 1.4,
+    marginTop: -2,
   },
   input: {
     width: '100%',
@@ -379,99 +398,27 @@ const S = {
     background: T.yellow,
     color: T.charcoal,
   },
-  toggleRow: {
+  sexRow: {
     display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+    gap: 6,
+    flexWrap: 'wrap',
   },
-  toggleBtn: {
-    padding: '6px 16px',
+  sexBtn: {
+    padding: '8px 14px',
     borderRadius: theme.radius.full,
     border: `1.5px solid ${T.border}`,
-    background: T.panel,
+    background: T.bg,
     fontSize: 13,
     fontWeight: 700,
     color: T.grey,
     cursor: 'pointer',
     fontFamily: FONT,
+    whiteSpace: 'nowrap',
   },
-  toggleBtnOn: {
+  sexBtnActive: {
     background: T.yellow,
     border: `1.5px solid ${T.yellow}`,
     color: T.charcoal,
-  },
-  subtext: {
-    fontSize: 12,
-    color: T.grey,
-    lineHeight: 1.4,
-    marginTop: -4,
-  },
-  driveRow: {
-    display: 'flex',
-    gap: 10,
-    alignItems: 'flex-start',
-  },
-  driveConnectedText: {
-    fontSize: 14,
-    fontWeight: 700,
-    color: T.charcoal,
-    lineHeight: 1.3,
-  },
-  driveSubtext: {
-    fontSize: 12,
-    color: T.grey,
-    marginTop: 2,
-    lineHeight: 1.4,
-  },
-  connectBtn: {
-    width: '100%',
-    padding: '13px',
-    borderRadius: theme.radius.lg,
-    border: 'none',
-    background: T.yellow,
-    fontSize: 15,
-    fontWeight: 700,
-    color: T.charcoal,
-    cursor: 'pointer',
-    fontFamily: FONT,
-    boxShadow: theme.shadow.sm,
-  },
-  dangerBtn: {
-    width: '100%',
-    padding: '12px',
-    borderRadius: theme.radius.lg,
-    border: `1.5px solid ${T.border}`,
-    background: 'transparent',
-    fontSize: 14,
-    fontWeight: 700,
-    color: T.grey,
-    cursor: 'pointer',
-    fontFamily: FONT,
-  },
-  dataRow: {
-    display: 'flex',
-    gap: 8,
-  },
-  dataBtn: {
-    flex: 1,
-    padding: '12px 10px',
-    borderRadius: theme.radius.md,
-    border: `1.5px solid ${T.border}`,
-    background: T.bg,
-    color: T.charcoal,
-    cursor: 'pointer',
-    fontFamily: FONT,
-    display: 'flex',
-    flexDirection: 'column',
-    alignItems: 'flex-start',
-    gap: 3,
-    textAlign: 'left',
-    boxSizing: 'border-box',
-  },
-  dataBtnSub: {
-    fontSize: 11,
-    fontWeight: 500,
-    color: T.grey,
   },
   saveBtn: {
     width: '100%',
@@ -490,5 +437,18 @@ const S = {
   },
   saveBtnDone: {
     background: '#4A7C59',
+  },
+  exportLink: {
+    background: 'none',
+    border: 'none',
+    color: T.grey,
+    fontSize: 12,
+    fontWeight: 600,
+    cursor: 'pointer',
+    textAlign: 'center',
+    padding: '8px',
+    fontFamily: FONT,
+    textDecoration: 'underline',
+    alignSelf: 'center',
   },
 };

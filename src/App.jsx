@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { GoogleOAuthProvider, useGoogleLogin } from '@react-oauth/google';
 import { globalStyles, theme } from './styles/theme';
 import { loadData, saveData, getDefaultData, addSession } from './services/googleDrive';
+import DriveConnectScreen from './screens/DriveConnect';
 import HomeScreen from './screens/Home';
 import WorkoutScreen from './screens/Workout';
 import CompleteScreen from './screens/Complete';
@@ -50,98 +51,89 @@ function App() {
 }
 
 function EggApp() {
-  const [screen, setScreen] = useState('home'); // home | workout | complete | settings
+  // State machine: connecting | needs_drive | needs_setup | ready | workout | complete | settings
+  const [appState, setAppState] = useState('connecting');
   const [accessToken, setAccessToken] = useState(null);
   const [data, setData] = useState(getDefaultData());
-  const [loading, setLoading] = useState(true);
-  const [driveLoading, setDriveLoading] = useState(false);
   const [sessionConfig, setSessionConfig] = useState(null);
   const [completedSession, setCompletedSession] = useState(null);
   const [authError, setAuthError] = useState('');
-  const [pendingResume, setPendingResume] = useState(null); // unfinished session
+  const [pendingResume, setPendingResume] = useState(null);
 
   const login = useGoogleLogin({
     scope: 'https://www.googleapis.com/auth/drive',
     prompt: 'consent',
-    redirect_uri: window.location.origin,
     onSuccess: async (response) => {
-      console.log('OAuth success:', response);
-      console.log('Token:', response.access_token);
-
       const token = response.access_token;
-
-      // Save token to localStorage
       localStorage.setItem('egg_token', token);
-      console.log('Token saved:', localStorage.getItem('egg_token') ? 'YES' : 'NO');
-
       setAccessToken(token);
       setAuthError('');
-      setLoading(true);
-
       try {
         const loaded = await loadData(token);
         const cleaned = cleanExistingSessionData(loaded);
-        console.log('Sessions loaded:', cleaned?.sessions?.length);
         setData(cleaned);
-      } catch (err) {
-        console.error('Load error:', err);
+        localStorage.setItem('egg_data', JSON.stringify(cleaned));
+        if (cleaned?.profile?.disclaimerAccepted) {
+          setAppState('ready');
+        } else {
+          setAppState('needs_setup');
+        }
+      } catch {
+        setAppState('needs_setup');
       }
-      setLoading(false);
     },
-    onError: (err) => {
-      console.error('Login failed:', err);
+    onError: () => {
       setAuthError('Google sign-in failed. Please try again.');
     },
   });
 
-  // On mount: show HomeScreen immediately, then validate token + fetch Drive in background
+  // On mount: validate saved token, load data, determine state
   useEffect(() => {
     const init = async () => {
-      console.log('App init');
       const savedToken = localStorage.getItem('egg_token');
-      console.log('Saved token:', savedToken ? 'found' : 'not found');
 
       const savedData = localStorage.getItem('egg_data');
       if (savedData) {
         try { setData(cleanExistingSessionData(JSON.parse(savedData))); } catch {}
       }
 
-      // Check for unfinished workout session
       const savedSession = localStorage.getItem('egg_current_session');
       if (savedSession) {
         try { setPendingResume(JSON.parse(savedSession)); } catch {}
       }
 
-      if (savedToken) {
-        try {
-          const test = await fetch(
-            'https://www.googleapis.com/drive/v3/about?fields=user',
-            { headers: { Authorization: `Bearer ${savedToken}` } }
-          );
-          console.log('Token test:', test.status);
-
-          if (!test.ok) {
-            console.log('Token expired');
-            localStorage.removeItem('egg_token');
-            setLoading(false);
-            return;
-          }
-
-          setAccessToken(savedToken);
-          const loaded = await loadData(savedToken);
-          const cleaned = cleanExistingSessionData(loaded);
-          console.log('Sessions from saved token:', cleaned?.sessions?.length);
-          setData(cleaned);
-          if (cleaned !== loaded) {
-            saveData(savedToken, cleaned).catch(() => {});
-            localStorage.setItem('egg_data', JSON.stringify(cleaned));
-          }
-        } catch (err) {
-          console.error('Init error:', err);
-          localStorage.removeItem('egg_token');
-        }
+      if (!savedToken) {
+        setAppState('needs_drive');
+        return;
       }
-      setLoading(false);
+
+      try {
+        const test = await fetch(
+          'https://www.googleapis.com/drive/v3/about?fields=user',
+          { headers: { Authorization: `Bearer ${savedToken}` } }
+        );
+        if (!test.ok) {
+          localStorage.removeItem('egg_token');
+          setAppState('needs_drive');
+          return;
+        }
+        setAccessToken(savedToken);
+        const loaded = await loadData(savedToken);
+        const cleaned = cleanExistingSessionData(loaded);
+        setData(cleaned);
+        if (cleaned !== loaded) {
+          saveData(savedToken, cleaned).catch(() => {});
+          localStorage.setItem('egg_data', JSON.stringify(cleaned));
+        }
+        if (cleaned?.profile?.disclaimerAccepted) {
+          setAppState('ready');
+        } else {
+          setAppState('needs_setup');
+        }
+      } catch {
+        localStorage.removeItem('egg_token');
+        setAppState('needs_drive');
+      }
     };
     init();
   }, []);
@@ -154,13 +146,12 @@ function EggApp() {
   }, [data]);
 
   const handleSessionStart = (config) => {
-    setPendingResume(null); // clear any pending resume when starting fresh
+    setPendingResume(null);
     setSessionConfig(config);
-    setScreen('workout');
+    setAppState('workout');
   };
 
   const handleResumeContinue = () => {
-    // Restore workout from saved session
     const saved = pendingResume;
     setPendingResume(null);
     setSessionConfig({
@@ -168,7 +159,7 @@ function EggApp() {
       timeAvailable: saved.timeAvailable,
       parsed: saved.parsed,
     });
-    setScreen('workout');
+    setAppState('workout');
   };
 
   const handleResumeDiscard = () => {
@@ -176,7 +167,6 @@ function EggApp() {
     setPendingResume(null);
   };
 
-  // Save partial session to Drive after each exercise Done
   const handleExerciseDone = async (partialSession) => {
     if (!accessToken) return;
     try {
@@ -189,25 +179,33 @@ function EggApp() {
     const updated = addSession(data, clean);
     setData(updated);
     setCompletedSession(clean);
-    setScreen('complete');
-
-    // Save to Drive if connected
+    setAppState('complete');
     if (accessToken) {
       try {
         await saveData(accessToken, updated);
-      } catch (err) {
-        console.error('Failed to save to Drive:', err);
-      }
+      } catch {}
     }
     localStorage.setItem('egg_data', JSON.stringify(updated));
   };
 
   const handleDone = () => {
-    setScreen('home');
+    setAppState('ready');
     setSessionConfig(null);
     setCompletedSession(null);
   };
 
+  // Setup mode: add disclaimerAccepted, then go to ready
+  const handleSetupSave = (profile) => {
+    const updated = { ...data, profile: { ...profile, disclaimerAccepted: true } };
+    setData(updated);
+    localStorage.setItem('egg_data', JSON.stringify(updated));
+    if (accessToken) {
+      saveData(accessToken, updated).catch(() => {});
+    }
+    setTimeout(() => setAppState('ready'), 800);
+  };
+
+  // Edit mode: save profile, return to ready
   const handleSaveProfile = (profile) => {
     const updated = { ...data, profile };
     setData(updated);
@@ -215,23 +213,11 @@ function EggApp() {
     if (accessToken) {
       saveData(accessToken, updated).catch(() => {});
     }
+    setTimeout(() => setAppState('ready'), 800);
   };
 
-  const handleDisconnect = () => {
-    localStorage.removeItem('egg_token');
-    setAccessToken(null);
-  };
-
-  const handleImportData = (importedData) => {
-    const cleaned = cleanExistingSessionData(importedData);
-    setData(cleaned);
-    localStorage.setItem('egg_data', JSON.stringify(cleaned));
-    if (accessToken) {
-      saveData(accessToken, cleaned).catch(() => {});
-    }
-  };
-
-  if (loading) {
+  // ── Loading spinner ────────────────────────────────────────────────────────
+  if (appState === 'connecting') {
     return (
       <div style={styles.loadingScreen}>
         <div style={styles.loadingEmoji}>🥚</div>
@@ -242,62 +228,69 @@ function EggApp() {
 
   return (
     <div style={styles.appWrapper}>
-      {authError && (
-        <div style={styles.errorBanner}>{authError}</div>
+
+      {appState === 'needs_drive' && (
+        <DriveConnectScreen onConnect={login} connectError={authError} />
       )}
 
-      {/* Unfinished session banner */}
-      {pendingResume && screen === 'home' && (
-        <div style={styles.resumeBanner}>
-          <div style={styles.resumeText}>
-            Unfinished session from {new Date(pendingResume.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}. Continue?
-          </div>
-          <div style={styles.resumeBtns}>
-            <button style={styles.resumeBtn} onClick={handleResumeContinue}>Continue</button>
-            <button style={styles.discardBtn} onClick={handleResumeDiscard}>Discard</button>
-          </div>
-        </div>
-      )}
-
-      {screen === 'home' && (
-        <HomeScreen
+      {appState === 'needs_setup' && (
+        <SettingsScreen
+          mode="setup"
           data={data}
-          driveLoading={driveLoading}
-          driveConnected={!!accessToken}
-          onSessionStart={handleSessionStart}
-          onOpenSettings={() => setScreen('settings')}
+          onSave={handleSetupSave}
         />
       )}
 
-      {screen === 'workout' && sessionConfig && (
+      {appState === 'ready' && (
+        <>
+          {pendingResume && (
+            <div style={styles.resumeBanner}>
+              <div style={styles.resumeText}>
+                Unfinished session from {new Date(pendingResume.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}. Continue?
+              </div>
+              <div style={styles.resumeBtns}>
+                <button style={styles.resumeBtn} onClick={handleResumeContinue}>Continue</button>
+                <button style={styles.discardBtn} onClick={handleResumeDiscard}>Discard</button>
+              </div>
+            </div>
+          )}
+          <HomeScreen
+            data={data}
+            driveLoading={false}
+            driveConnected={!!accessToken}
+            onSessionStart={handleSessionStart}
+            onOpenSettings={() => setAppState('settings')}
+          />
+        </>
+      )}
+
+      {appState === 'workout' && sessionConfig && (
         <WorkoutScreen
           sessionConfig={sessionConfig}
           data={data}
           onFinish={handleWorkoutFinish}
           initialGroups={pendingResume?.groups ?? null}
           onExerciseDone={handleExerciseDone}
-          onOpenSettings={() => setScreen('settings')}
+          onOpenSettings={() => setAppState('settings')}
         />
       )}
 
-      {screen === 'complete' && completedSession && (
+      {appState === 'complete' && completedSession && (
         <CompleteScreen
           session={completedSession}
           onDone={handleDone}
         />
       )}
 
-      {screen === 'settings' && (
+      {appState === 'settings' && (
         <SettingsScreen
+          mode="edit"
           data={data}
-          accessToken={accessToken}
-          onBack={() => setScreen('home')}
+          onBack={() => setAppState('ready')}
           onSave={handleSaveProfile}
-          onImportData={handleImportData}
-          onDisconnect={handleDisconnect}
-          onConnect={login}
         />
       )}
+
     </div>
   );
 }
@@ -327,37 +320,6 @@ const styles = {
     fontSize: '16px',
     color: theme.colors.grey,
     fontWeight: '500',
-  },
-  authBanner: {
-    background: theme.colors.panel,
-    padding: '12px 16px',
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    borderBottom: `1px solid ${theme.colors.border}`,
-  },
-  authText: {
-    fontSize: '13px',
-    color: theme.colors.grey,
-    flex: 1,
-  },
-  authBtn: {
-    background: theme.colors.yellow,
-    border: 'none',
-    borderRadius: theme.radius.full,
-    padding: '7px 16px',
-    fontSize: '13px',
-    fontWeight: '700',
-    color: theme.colors.charcoal,
-    cursor: 'pointer',
-    flexShrink: 0,
-  },
-  errorBanner: {
-    background: '#FEE2E2',
-    color: '#DC2626',
-    padding: '10px 16px',
-    fontSize: '13px',
-    textAlign: 'center',
   },
   resumeBanner: {
     background: theme.colors.panel,

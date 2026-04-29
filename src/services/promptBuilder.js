@@ -2,6 +2,8 @@ const JSON_FORMAT_INSTRUCTION = `
 IMPORTANT: Respond ONLY in valid JSON format. No prose, no markdown, no explanation outside the JSON.
 Use exactly this structure:
 {
+  "session_name": "2-4 word session name (e.g. 'Pull Strength + Balance')",
+  "session_context": "1-2 sentences max explaining why this session today, referencing specific pillars and history",
   "groups": [
     {
       "name": "group name",
@@ -337,6 +339,8 @@ export function parseClaudeResponse(text) {
     insights: raw.insights || '',
     substitutes: raw.substitutes || {},
     cardioPosition,
+    sessionName: raw.session_name || '',
+    sessionContext: raw.session_context || '',
   };
 }
 

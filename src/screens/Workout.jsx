@@ -390,6 +390,10 @@ export default function WorkoutScreen({ sessionConfig, data, onFinish, initialGr
   const [saveStatus, setSaveStatus] = useState(''); // '' | 'saving' | 'saved'
   // numPad: { setIndex, field, label, value } | null
   const [numPad, setNumPad] = useState(null);
+  const [contextExpanded, setContextExpanded] = useState(true);
+
+  const sessionName = sessionConfig.parsed?.sessionName || '';
+  const sessionContext = sessionConfig.parsed?.sessionContext || '';
 
   useEffect(() => {
     if (document.querySelector('link[data-nunito]')) return;
@@ -632,6 +636,19 @@ export default function WorkoutScreen({ sessionConfig, data, onFinish, initialGr
           <button style={S.finishBtn} onClick={handleFinish}>Finish</button>
         </div>
       </div>
+
+      {/* ── Session context card ── */}
+      {(sessionName || sessionContext) && (
+        <div style={S.contextCard} onClick={() => setContextExpanded(e => !e)}>
+          <div style={S.contextTop}>
+            {sessionName && <div style={S.contextName}>{sessionName.toUpperCase()}</div>}
+            <span style={S.contextToggle}>{contextExpanded ? '▲' : '▼'}</span>
+          </div>
+          {contextExpanded && sessionContext && (
+            <div style={S.contextText}>{sessionContext}</div>
+          )}
+        </div>
+      )}
 
       {/* ── Square grid ── */}
       <div style={S.slotsArea}>
@@ -924,6 +941,13 @@ const S = {
   timer: { fontSize:16, fontWeight:900, color:C.yolkDeep, fontVariantNumeric:'tabular-nums', letterSpacing:-0.4 },
   gearBtn: { fontSize:16, background:'transparent', border:'none', cursor:'pointer', padding:'4px 2px', color:C.grey, lineHeight:1 },
   finishBtn: { height:28, padding:'0 12px', borderRadius:99, background:'transparent', border:`1.5px solid ${C.coral}`, color:C.coral, fontFamily:FONT, fontSize:12, fontWeight:800, letterSpacing:0.2, cursor:'pointer', whiteSpace:'nowrap' },
+
+  // Session context card
+  contextCard: { margin:'0 16px', padding:'10px 14px', background:'#FFFAEC', borderRadius:14, border:`1.5px solid ${C.yolk}`, cursor:'pointer', flexShrink:0 },
+  contextTop: { display:'flex', justifyContent:'space-between', alignItems:'center', gap:8 },
+  contextName: { fontSize:11, fontWeight:800, letterSpacing:1.2, color:C.yolkDeep, flex:1 },
+  contextToggle: { fontSize:9, color:C.grey, flexShrink:0 },
+  contextText: { fontSize:12.5, fontWeight:500, color:C.ink2, lineHeight:1.5, marginTop:6 },
 
   // Slots — scrollable, sits behind the logging panel when open
   slotsArea: { padding:'14px 16px 16px', display:'flex', flexDirection:'column', gap:12, flex:1, overflowY:'auto', WebkitOverflowScrolling:'touch', overscrollBehavior:'contain' },

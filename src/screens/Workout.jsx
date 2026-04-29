@@ -1,5 +1,6 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { EXERCISES } from '../data/exercises';
+import { getSuggestedExercises } from '../services/googleDrive';
 
 const C = {
   bg: '#FAF3E0',
@@ -340,11 +341,60 @@ function findExerciseHistory(name, data) {
   return null;
 }
 
+// ─── Build groups from smart suggestions (no AI response) ────────────────────
+function buildGroupsFromSuggestions(data) {
+  const { exercisesByCategory } = getSuggestedExercises(data);
+  const ORDER = ['Warm-up', 'Push', 'Pull', 'Core', 'Balance', 'Cardio', 'Cool-down'];
+
+  return ORDER
+    .filter(cat => exercisesByCategory[cat]?.length > 0)
+    .map(cat => ({
+      name: cat,
+      exercises: exercisesByCategory[cat].map((ex, i) => {
+        const isCardioEx = CARDIO_GROUPS.has(cat) || ex.name in CARDIO_META;
+        if (isCardioEx) {
+          const meta = CARDIO_META[ex.name] || {};
+          return {
+            name: ex.name,
+            id: `${cat}-${i}`,
+            status: 'pending',
+            type: 'duration',
+            isCardioExercise: true,
+            cardioTrackDistance: !!meta.trackDistance,
+            cardioDistanceUnit: meta.distanceUnit || null,
+            cardioTrackElevation: !!meta.trackElevation,
+            cardioTrackFloors: !!meta.trackFloors,
+            weight: null, reps: null, duration: null,
+            bodyweight: null, guidance: null, note: null,
+            sets: [{ duration: '0', distance: '0', elevation: '0', floors: '0' }],
+          };
+        }
+        const type = resolveType(ex.name, cat, null);
+        const isDur = type === 'duration';
+        const isBW = ex.equipment === 'Bodyweight';
+        return {
+          name: ex.name,
+          id: `${cat}-${i}`,
+          status: 'pending',
+          type,
+          weight: null, reps: null, duration: null,
+          bodyweight: isBW || null,
+          guidance: null, note: null,
+          sets: Array(3).fill(null).map(() =>
+            isDur ? { duration: '0' } : { weight: isBW ? 'BW' : '0', reps: '0' }
+          ),
+        };
+      }),
+    }));
+}
+
 // ─── Main screen ─────────────────────────────────────────────────────────────
 export default function WorkoutScreen({ sessionConfig, data, onFinish, initialGroups, onExerciseDone, onOpenSettings }) {
   const [groups, setGroups] = useState(() => {
     // Use restored groups if provided (resuming an unfinished session)
     if (initialGroups) return initialGroups;
+    // No AI response — build from smart suggestions
+    if (!sessionConfig.parsed) return buildGroupsFromSuggestions(data);
     // Filter out Cool-down group (FIX 7) and build initial state
     return sessionConfig.parsed.groups
       .filter(g => g.name !== 'Cool-down')
@@ -393,7 +443,18 @@ export default function WorkoutScreen({ sessionConfig, data, onFinish, initialGr
   const [contextExpanded, setContextExpanded] = useState(true);
 
   const sessionName = sessionConfig.parsed?.sessionName || '';
-  const sessionContext = sessionConfig.parsed?.sessionContext || '';
+  const sessionContext = useMemo(() => {
+    if (sessionConfig.parsed?.sessionContext) return sessionConfig.parsed.sessionContext;
+    // Build context string from smart suggestions when no AI response
+    const { todayFocus, yesterdayMovements } = getSuggestedExercises(data);
+    const primary = todayFocus.filter(m => m !== 'Cardio' && m !== 'Stretch');
+    const focusStr = primary.join(' + ') || 'Full Body';
+    if (yesterdayMovements.length > 0) {
+      const yday = yesterdayMovements.filter(m => m !== 'Cardio' && m !== 'Stretch');
+      return `Yesterday: ${yday.join(', ') || 'Rest'} · Suggested focus: ${focusStr}`;
+    }
+    return `Suggested focus: ${focusStr}`;
+  }, [sessionConfig.parsed, data]);
 
   useEffect(() => {
     if (document.querySelector('link[data-nunito]')) return;
@@ -603,9 +664,10 @@ export default function WorkoutScreen({ sessionConfig, data, onFinish, initialGr
     g.exercises.map(e => ({ ...e, groupName: g.name, index: globalIdx++ }))
   );
 
+  const TITLE_EXCLUDE = new Set(['Warm-up', 'Cool-down', 'Cardio', 'Stretch']);
   const workoutTitle = (() => {
     const main = groups
-      .filter(g => g.name !== 'Warm-up' && g.name !== 'Cool-down' && g.name !== 'Cardio')
+      .filter(g => !TITLE_EXCLUDE.has(g.name))
       .map(g => g.name.replace(/\s*\(.*?\)/g, '').trim());
     if (main.length <= 2) return main.join(' + ');
     return main.slice(0, 2).join(' + ') + ` +${main.length - 2}`;

@@ -1,12 +1,14 @@
+import { getAllExercises } from '../data/exercises';
+
 const JSON_FORMAT_INSTRUCTION = `
 IMPORTANT: Respond ONLY in valid JSON format. No prose, no markdown, no explanation outside the JSON.
 Use exactly this structure:
 {
-  "session_name": "2-4 word session name (e.g. 'Pull Strength + Balance')",
-  "session_context": "1-2 sentences max explaining why this session today, referencing specific pillars and history",
+  "session_name": "2-4 word session name (e.g. 'Push + Core Power')",
+  "session_context": "1-2 sentences max explaining why this session today, referencing movement history",
   "groups": [
     {
-      "name": "group name",
+      "name": "Warm-up | Push | Pull | Core | Balance | Cardio | Cool-down",
       "exercises": [
         {
           "name": "exercise name",
@@ -37,26 +39,37 @@ const EQUIPMENT_BY_LOCATION = {
   'Home':       'Equipment as noted in profile/limitations. Default to bodyweight if nothing specified.',
 };
 
-// Seven Pillars status for prompt
-function getPillarStatus(pillars) {
-  const pillarNames = [
-    'Strength', 'Cardiovascular', 'Mobility',
-    'Flexibility', 'Balance', 'Functional', 'Recovery',
-  ];
-  return pillarNames.map(pillar => {
-    const lastDate = pillars?.[pillar];
-    if (!lastDate) return `${pillar}: never ⚠ CRITICAL`;
-    const days = Math.floor((Date.now() - new Date(lastDate)) / 86400000);
-    const when   = days === 0 ? 'today' : days === 1 ? 'yesterday' : `${days}d ago`;
-    const status = days <= 2 ? '✓' : days <= 5 ? '~' : days <= 7 ? '⚠ due soon' : '⚠ OVERDUE';
-    return `${pillar}: ${when} ${status}`;
-  }).join('\n');
+// Get movement categories worked in a session
+function getSessionMovements(session, allExercises) {
+  const movements = new Set();
+  session.groups?.forEach(group => {
+    group.exercises?.forEach(exercise => {
+      if (exercise.status !== 'done') return;
+      const match = allExercises.find(e =>
+        e.name.toLowerCase() === exercise.name.toLowerCase()
+      );
+      if (match?.movement) movements.add(match.movement);
+    });
+  });
+  return [...movements];
 }
 
 // Build the daily briefing prompt (delta — for ongoing chat, AI already has full context)
 export function buildDailyBriefing(data, timeAvailable, location = 'Full Gym') {
   const equip = EQUIPMENT_BY_LOCATION[location] || EQUIPMENT_BY_LOCATION['Full Gym'];
+  const sessions = data?.sessions || [];
+  const allExercises = getAllExercises();
+
+  const recentMovements = sessions.slice(0, 3).map(s => {
+    const movs = getSessionMovements(s, allExercises);
+    return `${formatDate(s.date)}: ${movs.join(', ') || 'unknown'}`;
+  }).join('\n') || 'No recent sessions.';
+
   return `${timeAvailable} minutes today. Location: ${location}. ${equip}
+
+RECENT MOVEMENT HISTORY:
+${recentMovements}
+
 ${JSON_FORMAT_INSTRUCTION}`;
 }
 
@@ -67,11 +80,11 @@ export function buildFullHandoff(data, timeAvailable, location = 'Full Gym') {
   const prs      = data.prs       || {};
   const insights = data.insights  || [];
   const exercises= data.exercises || {};
-  const pillars  = data.pillars   || {};
 
   const now            = new Date();
   const fourteenDaysAgo= new Date(now); fourteenDaysAgo.setDate(now.getDate() - 14);
   const thirtyDaysAgo  = new Date(now); thirtyDaysAgo.setDate(now.getDate() - 30);
+  const allExercises   = getAllExercises();
 
   const sessionCount = sessions.length;
   const noteHeader   = sessionCount === 0 && Object.keys(prs).length === 0
@@ -82,9 +95,8 @@ export function buildFullHandoff(data, timeAvailable, location = 'Full Gym') {
   const profileLines = [
     `Name: ${profile.name || 'Not set'}`,
     `Age: ${profile.age || 'Not set'}`,
+    profile.biologicalSex ? `Biological sex: ${profile.biologicalSex}` : null,
     `Weight: ${profile.weight ? `${profile.weight}${profile.weightUnit || 'lbs'}` : 'Not set'}`,
-    profile.primaryGoal  ? `Primary goal: ${profile.primaryGoal}` : null,
-    profile.travelsRegularly ? 'Travels regularly: yes (include hotel-friendly alternatives)' : null,
   ].filter(Boolean).join('\n');
 
   // 2. LIFETIME BESTS — top 10 most recent PRs
@@ -115,7 +127,13 @@ export function buildFullHandoff(data, timeAvailable, location = 'Full Gym') {
     .map(formatSessionCompact)
     .join('\n') || 'No sessions in the last 14 days.';
 
-  // 5. EXERCISE FREQUENCY — last 30 days
+  // 5. MOVEMENT HISTORY — last 7 sessions
+  const movementHistory = sessions.slice(0, 7).map(s => {
+    const movs = getSessionMovements(s, allExercises);
+    return `${formatDate(s.date)}: ${movs.join(', ') || 'unknown'}`;
+  }).join('\n') || 'No movement history yet.';
+
+  // 6. EXERCISE FREQUENCY — last 30 days
   const recentCounts = {};
   sessions
     .filter(s => s.date && new Date(s.date) >= thirtyDaysAgo)
@@ -131,7 +149,7 @@ export function buildFullHandoff(data, timeAvailable, location = 'Full Gym') {
   const frequent  = Object.entries(recentCounts).filter(([, c]) => c >= 6).map(([n]) => n);
   const neglected = Object.keys(exercises).filter(n => !recentCounts[n] || recentCounts[n] <= 1);
 
-  // 6. INSIGHTS
+  // 7. INSIGHTS
   const insightList = insights
     .map(i => {
       const raw = typeof i === 'string' ? i : i.text || i.content || JSON.stringify(i);
@@ -142,7 +160,7 @@ export function buildFullHandoff(data, timeAvailable, location = 'Full Gym') {
     })
     .join('\n') || '- None recorded yet.';
 
-  // 7. LOCATION
+  // 8. LOCATION
   const equip = EQUIPMENT_BY_LOCATION[location] || EQUIPMENT_BY_LOCATION['Full Gym'];
 
   return `${noteHeader}
@@ -151,7 +169,7 @@ I'm starting a new EGG session. Here's my complete fitness profile:
 
 ATHLETE:
 ${profileLines}
-${profile.notes ? `\nGOALS & NOTES:\n${profile.notes}` : ''}
+${profile.notes ? `\nHEALTH NOTES & LIMITATIONS:\n${profile.notes}` : ''}
 
 LIFETIME BESTS (top 10 most recent PRs):
 ${prList}
@@ -165,15 +183,15 @@ ${insightList}
 RECENT SESSIONS (last 14 days):
 ${recentSessions}
 
-SEVEN PILLARS — LAST WORKED:
-${getPillarStatus(pillars)}
+MOVEMENT HISTORY (last 7 sessions):
+${movementHistory}
 
-PILLAR INSTRUCTION:
-Prioritize the most overdue pillars above. Never let any pillar exceed 7 days without at least a brief element.
-- Strength + Cardiovascular: aim for 3-5x per week
-- Mobility + Flexibility: minimum 2x per week
-- Balance + Functional: minimum 2x per week
-- Recovery: minimum 1x per week
+MOVEMENT CATEGORY RULES:
+- 6 categories: Push, Pull, Core, Balance, Cardio, Stretch
+- Rotation: Push↔Pull alternate, Balance↔Core alternate
+- Cardio and Stretch: always include every session
+- Never repeat the same primary category two days in a row
+- Group names in JSON must be: Warm-up, Push, Pull, Core, Balance, Cardio, Cool-down
 
 EXERCISE FREQUENCY (last 30 days):
 ${frequent.length > 0 ? `Frequent (6+ times, may need variety): ${frequent.join(', ')}` : 'No exercises done 6+ times in last 30 days.'}
@@ -189,22 +207,13 @@ Example: 60 min = ~35 min actual lifting time. Do not overschedule.
 
 ---
 
-Please act as my personal trainer. Plan today's session using this 5-step approach:
+Please act as my personal trainer and plan today's session:
 
-Step 1 — Look back:
-Review the last 7 days of sessions above. Note which muscle groups were worked, which pillars were hit or missed, last intensity level, any patterns or issues.
-
-Step 2 — Identify priority:
-What is most overdue from the seven pillars? What muscle groups are recovered and ready to train?
-
-Step 3 — Match to reality:
-Filter by available equipment (${location}) and time (${timeAvailable} min). Adjust intensity based on recency. If user travels regularly, always include bodyweight alternatives.
-
-Step 4 — Generate session:
-Build the plan with sets, reps, and weights drawn from history above. Include a brief coach note explaining why this session makes sense today.
-
-Step 5 — Set up next time:
-End your coach note with exactly one sentence about what to prioritize next session.
+1. Check MOVEMENT HISTORY — identify yesterday's categories, apply rotation rules
+2. Select today's primary focus (Push or Pull, plus Core or Balance based on rotation)
+3. Filter by equipment and time available
+4. Build session from user's history: use weights/reps from BASELINES, introduce at least one neglected exercise
+5. End coach note with one sentence about what to prioritize next session
 
 Rules to always follow:
 - Match every exercise to available equipment at ${location}

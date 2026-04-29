@@ -54,11 +54,15 @@ export default function HomeScreen({ data, driveLoading, driveConnected, onSessi
   };
 
   const handleLetsGo = () => {
+    setParseError('');
     if (!pasteValue.trim()) {
-      setParseError('Please paste your AI response first.');
+      onSessionStart({
+        parsed: null,
+        timeAvailable: selectedTime,
+        date: new Date().toISOString(),
+      });
       return;
     }
-    setParseError('');
     try {
       const parsed = parseClaudeResponse(pasteValue);
       if (!parsed.groups || parsed.groups.length === 0) {
@@ -165,6 +169,12 @@ export default function HomeScreen({ data, driveLoading, driveConnected, onSessi
         </div>
       </div>
 
+      {/* Ask AI label */}
+      <div style={styles.askAiRow}>
+        <span style={styles.askAiLabel}>Ask AI for a workout?</span>
+        <span style={styles.optionalBadge}>optional</span>
+      </div>
+
       {/* Copy Button + Preview */}
       <div style={styles.copyRow}>
         <button style={styles.copyBtn} onClick={handleCopy}>
@@ -190,10 +200,7 @@ export default function HomeScreen({ data, driveLoading, driveConnected, onSessi
 
       {/* Let's Go Button */}
       <button
-        style={{
-          ...styles.goBtn,
-          opacity: pasteValue.trim() ? 1 : 0.5,
-        }}
+        style={styles.goBtn}
         onClick={handleLetsGo}
       >
         Let's go →
@@ -365,6 +372,26 @@ const styles = {
     color: theme.colors.grey,
     paddingLeft: '28px',
     lineHeight: 1.4,
+  },
+  askAiRow: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
+  },
+  askAiLabel: {
+    fontSize: '15px',
+    fontWeight: '600',
+    color: theme.colors.charcoal,
+  },
+  optionalBadge: {
+    fontSize: '11px',
+    fontWeight: '700',
+    color: theme.colors.grey,
+    background: theme.colors.panel,
+    borderRadius: theme.radius.full,
+    padding: '2px 8px',
+    letterSpacing: '0.3px',
+    textTransform: 'uppercase',
   },
   copyRow: {
     display: 'flex',

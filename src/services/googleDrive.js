@@ -168,6 +168,66 @@ export function getDefaultData() {
   };
 }
 
+// Get movement categories worked in the most recent session
+export function getYesterdayMovements(data) {
+  const sessions = data?.sessions;
+  if (!sessions?.length) return [];
+  const lastSession = sessions[0];
+  const allExercises = getAllExercises();
+  const movements = new Set();
+  lastSession.groups?.forEach(group => {
+    group.exercises?.forEach(exercise => {
+      if (exercise.status !== 'done') return;
+      const match = allExercises.find(e =>
+        e.name.toLowerCase() === exercise.name.toLowerCase()
+      );
+      if (match?.movement) movements.add(match.movement);
+    });
+  });
+  return [...movements];
+}
+
+// Suggest today's focus movements and top exercises per category
+export function getSuggestedExercises(data) {
+  const yesterdayMovements = getYesterdayMovements(data);
+
+  // Rotation logic
+  const rotationMap = { Pull: 'Push', Push: 'Pull', Balance: 'Core', Core: 'Balance' };
+  const todayFocus = new Set(['Cardio', 'Stretch']);
+  yesterdayMovements.forEach(m => {
+    const next = rotationMap[m];
+    if (next) todayFocus.add(next);
+  });
+  // If no primary movement yesterday, default to Push + Core
+  if (!todayFocus.has('Push') && !todayFocus.has('Pull') &&
+      !todayFocus.has('Core') && !todayFocus.has('Balance')) {
+    todayFocus.add('Push');
+    todayFocus.add('Core');
+  }
+
+  const allExercises = getAllExercises();
+  const userExercises = data?.exercises || {};
+
+  // For each category, find top 3 from user history ranked by sessions count
+  const exercisesByCategory = {};
+  [...todayFocus].forEach(category => {
+    const categoryExercises = allExercises.filter(e => e.movement === category);
+
+    // Sort by user sessions count (most used first), fall back to order in exercises.js
+    const ranked = categoryExercises
+      .map(e => ({ ...e, sessionCount: userExercises[e.name]?.sessions || 0 }))
+      .sort((a, b) => b.sessionCount - a.sessionCount);
+
+    exercisesByCategory[category] = ranked.slice(0, 3);
+  });
+
+  return {
+    todayFocus: [...todayFocus],
+    yesterdayMovements,
+    exercisesByCategory,
+  };
+}
+
 // Add a completed session to data
 export function addSession(data, session) {
   const updated = { ...data };

@@ -11,6 +11,7 @@ export default function SettingsScreen({
   data,
   onBack,
   onSave,
+  onNavigateToSessionHistory,
 }) {
   const profile = data?.profile || {};
   const [name, setName]               = useState(profile.name || '');
@@ -206,6 +207,16 @@ export default function SettingsScreen({
         >
           {saved ? 'Saved ✓' : isSetup ? 'Get started →' : 'Save profile'}
         </button>
+
+        {/* Admin tools (edit mode only) */}
+        {!isSetup && (
+          <div style={S.section}>
+            <button style={S.adminRow} onClick={onNavigateToSessionHistory}>
+              <span style={S.adminRowLabel}>Session History</span>
+              <span style={S.adminRowChevron}>›</span>
+            </button>
+          </div>
+        )}
 
         {/* Export link (edit mode only) */}
         {!isSetup && (
@@ -437,6 +448,27 @@ const S = {
   },
   saveBtnDone: {
     background: '#4A7C59',
+  },
+  adminRow: {
+    width: '100%',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    background: 'none',
+    border: 'none',
+    padding: 0,
+    cursor: 'pointer',
+    fontFamily: FONT,
+  },
+  adminRowLabel: {
+    fontSize: 14,
+    fontWeight: 600,
+    color: T.charcoal,
+  },
+  adminRowChevron: {
+    fontSize: 20,
+    color: T.grey,
+    lineHeight: 1,
   },
   exportLink: {
     background: 'none',

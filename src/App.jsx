@@ -7,6 +7,7 @@ import HomeScreen from './screens/Home';
 import WorkoutScreen from './screens/Workout';
 import CompleteScreen from './screens/Complete';
 import SettingsScreen from './screens/Settings';
+import SessionHistoryScreen from './screens/SessionHistory';
 
 const CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID;
 
@@ -51,7 +52,7 @@ function App() {
 }
 
 function EggApp() {
-  // State machine: connecting | needs_drive | needs_setup | ready | workout | complete | settings
+  // State machine: connecting | needs_drive | needs_setup | ready | workout | complete | settings | sessionHistory
   const [appState, setAppState] = useState('connecting');
   const [accessToken, setAccessToken] = useState(null);
   const [data, setData] = useState(getDefaultData());
@@ -288,6 +289,15 @@ function EggApp() {
           data={data}
           onBack={() => setAppState('ready')}
           onSave={handleSaveProfile}
+          onNavigateToSessionHistory={() => setAppState('sessionHistory')}
+        />
+      )}
+
+      {appState === 'sessionHistory' && (
+        <SessionHistoryScreen
+          data={data}
+          accessToken={accessToken}
+          onBack={() => setAppState('settings')}
         />
       )}
 

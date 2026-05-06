@@ -124,11 +124,8 @@ const CloseSVG = () => (
   </svg>
 );
 
-// ─── Number Pad ─────────────────────────────────────────────────────────────
-// Renders as position:absolute inside the logging panel (position:fixed).
-// Backdrop tap saves + closes. Done button saves + closes.
+// ─── Number Pad ──────────────────────────────────────────────────────────────
 function NumberPad({ label, initial, onConfirm }) {
-  // If initial is '0' or empty, start with blank display so user types fresh
   const [val, setVal] = useState(
     initial === 'BW' || initial === '0' || !initial ? '' : initial
   );
@@ -140,33 +137,19 @@ function NumberPad({ label, initial, onConfirm }) {
     } else if (key === '.') {
       if (!val.includes('.')) setVal(v => v + '.');
     } else {
-      setVal(v => {
-        if (v === '0') return key;
-        return v + key;
-      });
+      setVal(v => v === '0' ? key : v + key);
     }
   };
 
-  const KEYS = [
-    ['7','8','9'],
-    ['4','5','6'],
-    ['1','2','3'],
-    ['.','0','⌫'],
-  ];
-
+  const KEYS = [['7','8','9'],['4','5','6'],['1','2','3'],['.','0','⌫']];
   const displayVal = val === '' ? '—' : val;
-  // Save current val on confirm (backdrop tap or Done button)
   const confirm = (e) => { if (e) e.stopPropagation(); onConfirm(val || '0'); };
 
   return (
-    // Overlay fills the logging panel; tapping backdrop saves + closes
-    // onClick (not onPointerDown) so the React re-render from setNumPad(null)
-    // doesn't cause ghost clicks on the logging panel beneath
     <div style={S.numPadOverlay} onClick={confirm}>
       <div style={S.numPadPanel} onClick={e => e.stopPropagation()} onPointerDown={e => e.stopPropagation()}>
         <div style={S.numPadLabel}>{label}</div>
         <div style={S.numPadDisplay}>{displayVal}</div>
-
         <div style={S.numPadGrid}>
           {KEYS.map((row, r) =>
             row.map(key => (
@@ -192,38 +175,31 @@ function NumberPad({ label, initial, onConfirm }) {
             ))
           )}
         </div>
-
         <div style={S.numPadActions}>
-          <button style={S.numPadClear}
-            onClick={(e) => { e.stopPropagation(); setVal(''); }}>Clear</button>
-          <button style={S.numPadDone}
-            onClick={(e) => { e.stopPropagation(); confirm(); }}>Done</button>
+          <button style={S.numPadClear} onClick={(e) => { e.stopPropagation(); setVal(''); }}>Clear</button>
+          <button style={S.numPadDone} onClick={(e) => { e.stopPropagation(); confirm(); }}>Done</button>
         </div>
       </div>
     </div>
   );
 }
 
-// ─── AI Guidance Card ────────────────────────────────────────────────────────
+// ─── AI Guidance Card ─────────────────────────────────────────────────────────
 function GuidanceCard({ exercise, data }) {
   const last = findExerciseHistory(exercise.name, data);
   const pr   = data?.prs?.[exercise.name];
 
-  const isDuration = exercise.type === 'duration' || exercise.duration != null;
+  const isDuration = exercise.type === 'duration';
   const isBW = exercise.bodyweight === true;
-  const hasGuidance = !!exercise.guidance;
   const hasHistory = last && (last.lastWeight != null || last.lastReps != null || last.lastDuration != null);
 
   return (
     <div style={S.guidanceCard}>
-      {/* CASE C: AI guidance always shown if present */}
-      {hasGuidance && (
+      {exercise.guidance && (
         <div style={S.guidanceText}>{exercise.guidance}</div>
       )}
-
       <div style={S.guidanceRows}>
         {hasHistory ? (
-          /* CASE A: show type-aware history */
           <>
             <div style={S.guidanceRow}>
               <span style={S.guidanceLabel}>Last</span>
@@ -251,7 +227,6 @@ function GuidanceCard({ exercise, data }) {
             )}
           </>
         ) : (
-          /* CASE B: no history */
           <div style={S.guidanceNew}>New exercise — start light, focus on form and range of motion</div>
         )}
       </div>
@@ -261,44 +236,29 @@ function GuidanceCard({ exercise, data }) {
 
 function formatPRDate(dateStr) {
   if (!dateStr) return '';
-  try {
-    return new Date(dateStr).toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
-  } catch { return ''; }
+  try { return new Date(dateStr).toLocaleDateString('en-US', { month: 'short', year: 'numeric' }); }
+  catch { return ''; }
 }
 
 // ─── Tappable value field ─────────────────────────────────────────────────────
 function ValueField({ value, unit, onTap, muted }) {
-  const isEmpty = !value || value === '';
   return (
     <button
-      style={{
-        ...S.valField,
-        opacity: muted ? 0.45 : 1,
-        cursor: muted ? 'default' : 'pointer',
-      }}
+      style={{ ...S.valField, opacity: muted ? 0.45 : 1, cursor: muted ? 'default' : 'pointer' }}
       onClick={muted ? undefined : onTap}
     >
-      <span style={S.valNum}>{isEmpty ? '—' : value}</span>
+      <span style={S.valNum}>{!value || value === '' ? '—' : value}</span>
       <span style={S.valUnit}>{unit}</span>
     </button>
   );
 }
 
-// ─── Group category helpers (used in both WorkoutScreen and AddExercisePanel) ──
-const STRETCH_GROUPS = new Set(['Warm-up', 'Cool-down', 'Stretching', 'Mobility', 'Flexibility']);
-const CARDIO_GROUPS  = new Set(['Cardio', 'HIIT', 'Running', 'Conditioning', 'Cardio/Conditioning']);
-
-function isDurationGroup(groupName) {
-  return CARDIO_GROUPS.has(groupName) || STRETCH_GROUPS.has(groupName);
-}
-
-// Exercises that are always duration-type regardless of AI response or group
+// ─── Exercise type helpers ────────────────────────────────────────────────────
 const DURATION_EXERCISES = new Set([
   'Plank', 'Side Plank', 'Side Plank (Left)', 'Side Plank (Right)',
   'Dead Bug', 'Bird Dog', 'Dead Hang', 'L-Sit', 'Wall Sit', 'Hollow Hold',
 ]);
 
-// Cardio exercise metadata — drives which tracking fields to show in the logging panel
 const CARDIO_META = {
   'Running':             { trackDistance: true,  distanceUnit: 'km' },
   'Running (outdoor)':  { trackDistance: true,  distanceUnit: 'km' },
@@ -316,18 +276,12 @@ const CARDIO_META = {
   'Jump Rope':          {},
 };
 
-function getCardioMeta(name) {
-  return CARDIO_META[name] || null;
-}
-
-// Resolve effective type: name-based override > AI type > group-based
-function resolveType(exerciseName, groupName, aiType) {
+function resolveType(exerciseName, aiType) {
   if (DURATION_EXERCISES.has(exerciseName)) return 'duration';
-  if (isDurationGroup(groupName)) return 'duration';
+  if (exerciseName in CARDIO_META) return 'cardio';
   return aiType || 'strength';
 }
 
-// Case-insensitive + partial-match lookup in data.exercises (FIX 3)
 function findExerciseHistory(name, data) {
   if (!data?.exercises) return null;
   if (data.exercises[name]) return data.exercises[name];
@@ -341,40 +295,86 @@ function findExerciseHistory(name, data) {
   return null;
 }
 
-// ─── Build groups from smart suggestions (no AI response) ────────────────────
-function buildGroupsFromSuggestions(data) {
+// ─── Build flat exercise list from AI response ────────────────────────────────
+function initFromParsed(parsed) {
+  const cardioPos = parsed.cardioPosition || 'none';
+
+  const mapped = (parsed.exercises || []).map((e, i) => {
+    const isCardioEx = e.type === 'cardio' || e.name in CARDIO_META;
+    if (isCardioEx) {
+      const meta = CARDIO_META[e.name] || {};
+      return {
+        ...e,
+        id: `ex-${i}`,
+        status: 'pending',
+        type: 'cardio',
+        isCardioExercise: true,
+        cardioTrackDistance: !!meta.trackDistance,
+        cardioDistanceUnit: meta.distanceUnit || null,
+        cardioTrackElevation: !!meta.trackElevation,
+        cardioTrackFloors: !!meta.trackFloors,
+        sets: [{ duration: '0', distance: '0', elevation: '0', floors: '0' }],
+      };
+    }
+    const type = resolveType(e.name, e.type);
+    const isDur = type === 'duration';
+    const isBW = e.bodyweight === true || e.weight === 0;
+    return {
+      ...e,
+      id: `ex-${i}`,
+      status: 'pending',
+      type,
+      sets: Array(e.sets || 3).fill(null).map(() =>
+        isDur ? { duration: '0' } : { weight: isBW ? 'BW' : '0', reps: '0' }
+      ),
+    };
+  });
+
+  // Apply cardio position sort
+  if (cardioPos !== 'none') {
+    const isCardio = e => e.isCardioExercise || e.type === 'cardio';
+    const cardioExs = mapped.filter(isCardio);
+    const otherExs  = mapped.filter(e => !isCardio(e));
+    return cardioPos === 'first' ? [...cardioExs, ...otherExs] : [...otherExs, ...cardioExs];
+  }
+  return mapped;
+}
+
+// ─── Build flat exercise list from smart suggestions (no AI response) ─────────
+function buildExercisesFromSuggestions(data) {
   const { exercisesByCategory } = getSuggestedExercises(data);
-  const ORDER = ['Warm-up', 'Push', 'Pull', 'Core', 'Balance', 'Cardio', 'Cool-down'];
+  const ORDER = ['Stretch', 'Push', 'Pull', 'Core', 'Balance', 'Cardio'];
 
   return ORDER
     .filter(cat => exercisesByCategory[cat]?.length > 0)
-    .map(cat => ({
-      name: cat,
-      exercises: exercisesByCategory[cat].map((ex, i) => {
-        const isCardioEx = CARDIO_GROUPS.has(cat) || ex.name in CARDIO_META;
+    .flatMap((cat, catIdx) =>
+      exercisesByCategory[cat].map((ex, i) => {
+        const isCardioEx = cat === 'Cardio' || ex.name in CARDIO_META;
         if (isCardioEx) {
           const meta = CARDIO_META[ex.name] || {};
           return {
             name: ex.name,
             id: `${cat}-${i}`,
             status: 'pending',
-            type: 'duration',
+            type: 'cardio',
             isCardioExercise: true,
             cardioTrackDistance: !!meta.trackDistance,
             cardioDistanceUnit: meta.distanceUnit || null,
             cardioTrackElevation: !!meta.trackElevation,
             cardioTrackFloors: !!meta.trackFloors,
-            weight: null, reps: null, duration: null,
-            bodyweight: null, guidance: null, note: null,
+            weight: null, reps: null, duration: null, bodyweight: null,
+            guidance: null, note: null,
             sets: [{ duration: '0', distance: '0', elevation: '0', floors: '0' }],
           };
         }
-        const type = resolveType(ex.name, cat, null);
+        const type = DURATION_EXERCISES.has(ex.name) ? 'duration'
+          : cat === 'Stretch' ? 'duration'
+          : 'strength';
         const isDur = type === 'duration';
-        const isBW = ex.equipment === 'Bodyweight';
+        const isBW = ex.equipment === 'bodyweight' || ex.equipment === 'Bodyweight';
         return {
           name: ex.name,
-          id: `${cat}-${i}`,
+          id: `${cat}-${catIdx}-${i}`,
           status: 'pending',
           type,
           weight: null, reps: null, duration: null,
@@ -384,68 +384,28 @@ function buildGroupsFromSuggestions(data) {
             isDur ? { duration: '0' } : { weight: isBW ? 'BW' : '0', reps: '0' }
           ),
         };
-      }),
-    }));
+      })
+    );
 }
 
-// ─── Main screen ─────────────────────────────────────────────────────────────
-export default function WorkoutScreen({ sessionConfig, data, onFinish, initialGroups, onExerciseDone, onOpenSettings }) {
-  const [groups, setGroups] = useState(() => {
-    // Use restored groups if provided (resuming an unfinished session)
-    if (initialGroups) return initialGroups;
-    // No AI response — build from smart suggestions
-    if (!sessionConfig.parsed) return buildGroupsFromSuggestions(data);
-    // Filter out Cool-down group (FIX 7) and build initial state
-    return sessionConfig.parsed.groups
-      .filter(g => g.name !== 'Cool-down')
-      .map(g => ({
-        ...g,
-        exercises: g.exercises.map((e, i) => {
-          const isCardioEx = CARDIO_GROUPS.has(g.name) || e.name in CARDIO_META;
-          if (isCardioEx) {
-            const meta = CARDIO_META[e.name] || {};
-            return {
-              ...e,
-              id: `${g.name}-${i}`,
-              status: 'pending',
-              type: 'duration',
-              isCardioExercise: true,
-              cardioTrackDistance: !!meta.trackDistance,
-              cardioDistanceUnit: meta.distanceUnit || null,
-              cardioTrackElevation: !!meta.trackElevation,
-              cardioTrackFloors: !!meta.trackFloors,
-              sets: [{ duration: '0', distance: '0', elevation: '0', floors: '0' }],
-            };
-          }
-          const type = resolveType(e.name, g.name, e.type);
-          const isDur = type === 'duration';
-          return {
-            ...e,
-            id: `${g.name}-${i}`,
-            status: 'pending',
-            type,
-            sets: Array(e.sets || 3).fill(null).map(() =>
-              isDur
-                ? { duration: '0' }
-                : { weight: (e.bodyweight === true || e.weight === 0) ? 'BW' : '0', reps: '0' }
-            ),
-          };
-        }),
-      }));
+// ─── Main screen ──────────────────────────────────────────────────────────────
+export default function WorkoutScreen({ sessionConfig, data, onFinish, initialExercises, onExerciseDone, onOpenSettings }) {
+  const [exercises, setExercises] = useState(() => {
+    if (initialExercises) return initialExercises;
+    if (!sessionConfig.parsed) return buildExercisesFromSuggestions(data);
+    return initFromParsed(sessionConfig.parsed);
   });
 
   const [activeExercise, setActiveExercise] = useState(null);
   const [showAddExercise, setShowAddExercise] = useState(false);
   const [elapsed, setElapsed] = useState(0);
-  const [saveStatus, setSaveStatus] = useState(''); // '' | 'saving' | 'saved'
-  // numPad: { setIndex, field, label, value } | null
+  const [saveStatus, setSaveStatus] = useState('');
   const [numPad, setNumPad] = useState(null);
   const [contextExpanded, setContextExpanded] = useState(true);
 
   const sessionName = sessionConfig.parsed?.sessionName || '';
   const sessionContext = useMemo(() => {
     if (sessionConfig.parsed?.sessionContext) return sessionConfig.parsed.sessionContext;
-    // Build context string from smart suggestions when no AI response
     const { todayFocus, yesterdayMovements } = getSuggestedExercises(data);
     const primary = todayFocus.filter(m => m !== 'Cardio' && m !== 'Stretch');
     const focusStr = primary.join(' + ') || 'Full Body';
@@ -455,6 +415,13 @@ export default function WorkoutScreen({ sessionConfig, data, onFinish, initialGr
     }
     return `Suggested focus: ${focusStr}`;
   }, [sessionConfig.parsed, data]);
+
+  const workoutTitle = useMemo(() => {
+    if (sessionName) return sessionName;
+    const { todayFocus } = getSuggestedExercises(data);
+    const primary = todayFocus.filter(m => m !== 'Cardio' && m !== 'Stretch');
+    return primary.slice(0, 2).join(' + ') || 'Workout';
+  }, [sessionName, data]);
 
   useEffect(() => {
     if (document.querySelector('link[data-nunito]')) return;
@@ -482,7 +449,6 @@ export default function WorkoutScreen({ sessionConfig, data, onFinish, initialGr
     return () => clearInterval(id);
   }, []);
 
-  // Prevent iOS pull-to-refresh / overscroll dismissing the panel
   useEffect(() => {
     window.scrollTo(0, 0);
     const prev = document.body.style.overflow;
@@ -500,146 +466,114 @@ export default function WorkoutScreen({ sessionConfig, data, onFinish, initialGr
     return `${m}:${(s % 60).toString().padStart(2, '0')}`;
   };
 
-  // ── Helpers ────────────────────────────────────────────────────────────────
-  const saveToLocal = (updatedGroups) => {
-    const sessionData = {
+  // ── Persist to localStorage ───────────────────────────────────────────────
+  const saveToLocal = (updatedExercises) => {
+    localStorage.setItem('egg_current_session', JSON.stringify({
       date: sessionConfig.date,
-      groups: updatedGroups,
+      exercises: updatedExercises,
       duration: Math.floor(elapsed / 60),
       savedAt: new Date().toISOString(),
       parsed: sessionConfig.parsed,
       timeAvailable: sessionConfig.timeAvailable,
-    };
-    localStorage.setItem('egg_current_session', JSON.stringify(sessionData));
+    }));
   };
 
-  const updateExercise = (groupName, exerciseId, updates) => {
-    const newGroups = groups.map(g =>
-      g.name === groupName
-        ? { ...g, exercises: g.exercises.map(e => e.id === exerciseId ? { ...e, ...updates } : e) }
-        : g
-    );
-    setGroups(newGroups);
-    saveToLocal(newGroups);
+  // ── Mutation helpers ──────────────────────────────────────────────────────
+  const updateExercise = (exerciseId, updates) => {
+    const next = exercises.map(e => e.id === exerciseId ? { ...e, ...updates } : e);
+    setExercises(next);
+    saveToLocal(next);
     if (activeExercise?.id === exerciseId)
       setActiveExercise(prev => ({ ...prev, ...updates }));
   };
 
-  const updateSet = (groupName, exerciseId, setIndex, field, value) => {
-    const newGroups = groups.map(g =>
-      g.name === groupName ? {
-        ...g,
-        exercises: g.exercises.map(e => {
-          if (e.id !== exerciseId) return e;
-          return { ...e, sets: e.sets.map((s, i) => i === setIndex ? { ...s, [field]: value } : s) };
-        }),
-      } : g
-    );
-    setGroups(newGroups);
-    saveToLocal(newGroups);
+  const updateSet = (exerciseId, setIndex, field, value) => {
+    const next = exercises.map(e => {
+      if (e.id !== exerciseId) return e;
+      return { ...e, sets: e.sets.map((s, i) => i === setIndex ? { ...s, [field]: value } : s) };
+    });
+    setExercises(next);
+    saveToLocal(next);
   };
 
-  const addSet = (groupName, exerciseId) => {
-    const ex = groups.flatMap(g => g.exercises).find(e => e.id === exerciseId);
-    if (ex?.isCardioExercise) return;
-    const newGroups = groups.map(g =>
-      g.name === groupName ? {
-        ...g,
-        exercises: g.exercises.map(e => {
-          if (e.id !== exerciseId) return e;
-          const newSet = (e.type === 'duration' || e.duration != null)
-            ? { duration: '0' }
-            : { weight: e.bodyweight ? 'BW' : '0', reps: '0' };
-          return { ...e, sets: [...e.sets, newSet] };
-        }),
-      } : g
+  const addSet = (exerciseId) => {
+    const ex = exercises.find(e => e.id === exerciseId);
+    if (!ex || ex.isCardioExercise) return;
+    const newSet = ex.type === 'duration' ? { duration: '0' }
+      : { weight: ex.bodyweight ? 'BW' : '0', reps: '0' };
+    const next = exercises.map(e =>
+      e.id === exerciseId ? { ...e, sets: [...e.sets, newSet] } : e
     );
-    setGroups(newGroups);
-    saveToLocal(newGroups);
-    if (activeExercise?.id === exerciseId) {
-      setActiveExercise(prev => {
-        const newSet = (prev.type === 'duration' || prev.duration != null)
-          ? { duration: '0' }
-          : { weight: prev.bodyweight ? 'BW' : '0', reps: '0' };
-        return { ...prev, sets: [...prev.sets, newSet] };
-      });
-    }
+    setExercises(next);
+    saveToLocal(next);
+    if (activeExercise?.id === exerciseId)
+      setActiveExercise(prev => ({ ...prev, sets: [...prev.sets, newSet] }));
   };
 
-  const markDone = (groupName, exerciseId) => {
-    const exercise = groups.flatMap(g => g.exercises).find(e => e.id === exerciseId);
+  const deleteExercise = (exerciseId) => {
+    const next = exercises.filter(e => e.id !== exerciseId);
+    setExercises(next);
+    saveToLocal(next);
+    if (activeExercise?.id === exerciseId) setActiveExercise(null);
+  };
+
+  const markDone = (exerciseId) => {
+    const exercise = exercises.find(e => e.id === exerciseId);
     const hasData = exercise?.sets?.some(s =>
-      parseFloat(s.weight) > 0 ||
-      parseInt(s.reps) > 0 ||
-      parseInt(s.duration) > 0 ||
-      parseFloat(s.distance) > 0
+      parseFloat(s.weight) > 0 || parseInt(s.reps) > 0 ||
+      parseInt(s.duration) > 0 || parseFloat(s.distance) > 0
     );
-    if (!hasData) {
-      setActiveExercise(null);
-      return;
-    }
-    const newGroups = groups.map(g =>
-      g.name === groupName
-        ? { ...g, exercises: g.exercises.map(e => e.id === exerciseId ? { ...e, status: 'done' } : e) }
-        : g
-    );
-    setGroups(newGroups);
-    saveToLocal(newGroups);
+    if (!hasData) { setActiveExercise(null); return; }
+    const next = exercises.map(e => e.id === exerciseId ? { ...e, status: 'done' } : e);
+    setExercises(next);
+    saveToLocal(next);
     setActiveExercise(null);
-    // Optionally save to Drive (passed from App.jsx)
     if (onExerciseDone) {
       setSaveStatus('saving');
-      Promise.resolve(onExerciseDone({ groups: newGroups, duration: Math.floor(elapsed / 60), date: sessionConfig.date }))
+      Promise.resolve(onExerciseDone({ exercises: next, duration: Math.floor(elapsed / 60), date: sessionConfig.date }))
         .then(() => { setSaveStatus('saved'); setTimeout(() => setSaveStatus(''), 2000); })
         .catch(() => setSaveStatus(''));
     }
   };
 
-  const addExercise = (name, groupName) => {
-    const lp = findExerciseHistory(name, data);
-    const isCardioEx = CARDIO_GROUPS.has(groupName) || name in CARDIO_META;
-    const meta = isCardioEx ? (CARDIO_META[name] || {}) : null;
-    const type = isCardioEx ? 'duration' : resolveType(name, groupName, null);
+  const addExercise = (name) => {
+    const isCardioEx = name in CARDIO_META;
+    const meta = isCardioEx ? CARDIO_META[name] : null;
+    const type = isCardioEx ? 'cardio' : resolveType(name, null);
     const isDur = type === 'duration';
-    const ex = isCardioEx
-      ? {
-          id: `${groupName}-${Date.now()}`,
-          name, status: 'pending', type: 'duration',
-          isCardioExercise: true,
-          cardioTrackDistance: !!meta.trackDistance,
-          cardioDistanceUnit: meta.distanceUnit || null,
-          cardioTrackElevation: !!meta.trackElevation,
-          cardioTrackFloors: !!meta.trackFloors,
-          weight: null, reps: null, duration: null, bodyweight: null,
-          sets: [{ duration: '0', distance: '0', elevation: '0', floors: '0' }],
-        }
-      : {
-          id: `${groupName}-${Date.now()}`,
-          name, status: 'pending',
-          type,
-          weight: isDur ? null : (lp?.lastWeight?.toString() || ''),
-          reps: isDur ? null : (lp?.lastReps?.toString() || ''),
-          duration: isDur ? '' : null,
-          bodyweight: null,
-          sets: [isDur ? { duration: '0' } : { weight: '0', reps: '0' }],
-        };
-    const newGroups = groups.map(g =>
-      g.name === groupName ? { ...g, exercises: [...g.exercises, ex] } : g
-    );
-    setGroups(newGroups);
-    saveToLocal(newGroups);
+    const lp = findExerciseHistory(name, data);
+    const ex = isCardioEx ? {
+      id: `ex-${Date.now()}`,
+      name, status: 'pending', type: 'cardio',
+      isCardioExercise: true,
+      cardioTrackDistance: !!meta?.trackDistance,
+      cardioDistanceUnit: meta?.distanceUnit || null,
+      cardioTrackElevation: !!meta?.trackElevation,
+      cardioTrackFloors: !!meta?.trackFloors,
+      weight: null, reps: null, duration: null, bodyweight: null,
+      guidance: null, note: null,
+      sets: [{ duration: '0', distance: '0', elevation: '0', floors: '0' }],
+    } : {
+      id: `ex-${Date.now()}`,
+      name, status: 'pending', type,
+      weight: isDur ? null : (lp?.lastWeight?.toString() || ''),
+      reps: isDur ? null : (lp?.lastReps?.toString() || ''),
+      duration: isDur ? '' : null,
+      bodyweight: null, guidance: null, note: null,
+      sets: [isDur ? { duration: '0' } : { weight: '0', reps: '0' }],
+    };
+    const next = [...exercises, ex];
+    setExercises(next);
+    saveToLocal(next);
     setShowAddExercise(false);
-    setActiveExercise({ ...ex, groupName });
+    setActiveExercise(ex);
   };
-
-  const handleFinish = () => finishSession();
 
   const finishSession = () => {
     localStorage.removeItem('egg_current_session');
-    onFinish({ groups, duration: Math.floor(elapsed / 60), date: sessionConfig.date });
+    onFinish({ exercises, duration: Math.floor(elapsed / 60), date: sessionConfig.date });
   };
 
-  // Open number pad
   const openPad = (setIndex, field, label) => {
     if (!activeExercise) return;
     const currentVal = activeExercise.sets[setIndex]?.[field] || '';
@@ -648,30 +582,13 @@ export default function WorkoutScreen({ sessionConfig, data, onFinish, initialGr
 
   const confirmPad = (newVal) => {
     if (!numPad || !activeExercise) return;
-    updateSet(activeExercise.groupName, activeExercise.id, numPad.setIndex, numPad.field, newVal);
-    // Also update activeExercise so UI reflects it immediately
+    updateSet(activeExercise.id, numPad.setIndex, numPad.field, newVal);
     setActiveExercise(prev => ({
       ...prev,
-      sets: prev.sets.map((s, i) =>
-        i === numPad.setIndex ? { ...s, [numPad.field]: newVal } : s
-      ),
+      sets: prev.sets.map((s, i) => i === numPad.setIndex ? { ...s, [numPad.field]: newVal } : s),
     }));
     setNumPad(null);
   };
-
-  let globalIdx = 0;
-  const squaresData = groups.flatMap(g =>
-    g.exercises.map(e => ({ ...e, groupName: g.name, index: globalIdx++ }))
-  );
-
-  const TITLE_EXCLUDE = new Set(['Warm-up', 'Cool-down', 'Cardio', 'Stretch']);
-  const workoutTitle = (() => {
-    const main = groups
-      .filter(g => !TITLE_EXCLUDE.has(g.name))
-      .map(g => g.name.replace(/\s*\(.*?\)/g, '').trim());
-    if (main.length <= 2) return main.join(' + ');
-    return main.slice(0, 2).join(' + ') + ` +${main.length - 2}`;
-  })();
 
   return (
     <div style={{ background: C.bg, position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, display: 'flex', flexDirection: 'column', fontFamily: FONT, overflow: 'hidden', overscrollBehavior: 'none' }}>
@@ -695,7 +612,7 @@ export default function WorkoutScreen({ sessionConfig, data, onFinish, initialGr
           {onOpenSettings && (
             <button style={S.gearBtn} onClick={onOpenSettings} aria-label="Settings">⚙</button>
           )}
-          <button style={S.finishBtn} onClick={handleFinish}>Finish</button>
+          <button style={S.finishBtn} onClick={finishSession}>Finish</button>
         </div>
       </div>
 
@@ -712,74 +629,74 @@ export default function WorkoutScreen({ sessionConfig, data, onFinish, initialGr
         </div>
       )}
 
-      {/* ── Square grid ── */}
+      {/* ── Exercise grid (flat) ── */}
       <div style={S.slotsArea}>
-        {groups.map(group => (
-          <div key={group.name} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            <div style={S.groupCaps}>{group.name.replace(/\s*\(.*?\)/g, '').trim().toUpperCase()}</div>
-            <div style={S.slotsGrid}>
-              {group.exercises.map(exercise => {
-                const sq = squaresData.find(s => s.id === exercise.id);
-                const isActive = activeExercise?.id === exercise.id;
-                const isDone = exercise.status === 'done';
-                return (
+        <div style={S.slotsGrid}>
+          {exercises.map((exercise, idx) => {
+            const isActive = activeExercise?.id === exercise.id;
+            const isDone = exercise.status === 'done';
+            const isPending = exercise.status === 'pending';
+            return (
+              <button
+                key={exercise.id}
+                style={{
+                  ...S.slot,
+                  background: isActive ? C.yolk : C.panel,
+                  boxShadow: isActive
+                    ? '0 1px 0 rgba(255,255,255,0.6) inset, 0 8px 18px -8px rgba(245,197,24,0.55), 0 1px 0 rgba(44,36,22,0.06)'
+                    : '0 1px 0 rgba(255,255,255,0.6) inset, inset 0 0 0 1px rgba(44,36,22,0.05)',
+                }}
+                onClick={() => setActiveExercise({ ...exercise })}
+              >
+                {isDone && (
+                  <div style={S.doneBadge}>
+                    <CheckSVG size={8} strokeWidth={1.6} color={C.ink} />
+                  </div>
+                )}
+                {isPending && (
                   <button
-                    key={exercise.id}
-                    style={{
-                      ...S.slot,
-                      background: isActive ? C.yolk : C.panel,
-                      boxShadow: isActive
-                        ? '0 1px 0 rgba(255,255,255,0.6) inset, 0 8px 18px -8px rgba(245,197,24,0.55), 0 1px 0 rgba(44,36,22,0.06)'
-                        : '0 1px 0 rgba(255,255,255,0.6) inset, inset 0 0 0 1px rgba(44,36,22,0.05)',
-                    }}
-                    onClick={() => setActiveExercise({ ...exercise, groupName: group.name })}
+                    style={S.deleteBtn}
+                    onClick={e => { e.stopPropagation(); deleteExercise(exercise.id); }}
+                    aria-label="Remove exercise"
                   >
-                    {isDone && (
-                      <div style={S.doneBadge}>
-                        <CheckSVG size={8} strokeWidth={1.6} color={C.ink} />
-                      </div>
-                    )}
-                    <span style={{
-                      fontSize: 22, fontWeight: 900, letterSpacing: -0.6, lineHeight: 1,
-                      fontVariantNumeric: 'tabular-nums',
-                      color: isActive ? C.ink : isDone ? C.grey : C.ink,
-                    }}>
-                      {(sq?.index ?? 0) + 1}
-                    </span>
-                    <span style={{
-                      fontSize: 9.5, fontWeight: 700, lineHeight: 1.15,
-                      textAlign: 'center', letterSpacing: -0.05,
-                      color: isActive ? C.ink2 : isDone ? C.grey : C.ink2,
-                      maxWidth: '100%',
-                    }}>
-                      {abbreviate(exercise.name)}
-                    </span>
+                    <svg width="8" height="8" viewBox="0 0 10 10">
+                      <path d="M1 1 L9 9 M9 1 L1 9" stroke={C.grey} strokeWidth="1.8" strokeLinecap="round"/>
+                    </svg>
                   </button>
-                );
-              })}
-              <button style={S.addSlot} onClick={() => setShowAddExercise(group.name)}>
-                <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
-                  <path d="M10 4 V 16 M 4 10 H 16" stroke={C.yolkDeep} strokeWidth="2.2" strokeLinecap="round" />
-                </svg>
+                )}
+                <span style={{
+                  fontSize: 22, fontWeight: 900, letterSpacing: -0.6, lineHeight: 1,
+                  fontVariantNumeric: 'tabular-nums',
+                  color: isActive ? C.ink : isDone ? C.grey : C.ink,
+                }}>
+                  {idx + 1}
+                </span>
+                <span style={{
+                  fontSize: 9.5, fontWeight: 700, lineHeight: 1.15,
+                  textAlign: 'center', letterSpacing: -0.05,
+                  color: isActive ? C.ink2 : isDone ? C.grey : C.ink2,
+                  maxWidth: '100%',
+                }}>
+                  {abbreviate(exercise.name)}
+                </span>
               </button>
-            </div>
-          </div>
-        ))}
+            );
+          })}
+          <button style={S.addSlot} onClick={() => setShowAddExercise(true)}>
+            <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+              <path d="M10 4 V 16 M 4 10 H 16" stroke={C.yolkDeep} strokeWidth="2.2" strokeLinecap="round" />
+            </svg>
+          </button>
+        </div>
       </div>
 
-      {/* ── Logging Panel — fixed sheet, 90vh, slides up from bottom ── */}
+      {/* ── Logging Panel ── */}
       {activeExercise && (
         <div style={S.loggingPanel}>
-          {/* Drag handle — touch-action:none prevents pull-to-dismiss */}
           <div style={S.panelHandle} />
-
-          {/* AI guidance card */}
           <GuidanceCard exercise={activeExercise} data={data} />
-
-          {/* Exercise name */}
           <div style={S.exerciseName}>{activeExercise.name.toUpperCase()}</div>
 
-          {/* Cardio fields OR strength sets */}
           {activeExercise.isCardioExercise ? (
             <div style={S.cardioFields}>
               <ValueField
@@ -810,40 +727,22 @@ export default function WorkoutScreen({ sessionConfig, data, onFinish, initialGr
               )}
             </div>
           ) : (
-            /* Sets — scrollable if many sets */
             <div style={S.setsScroll}>
               {activeExercise.sets?.map((set, i) => {
-                const isDuration = activeExercise.type === 'duration' || activeExercise.duration != null;
+                const isDuration = activeExercise.type === 'duration';
                 const isBW = activeExercise.bodyweight === true;
                 return (
                   <div key={i} style={S.setRow}>
                     <span style={S.setLabel}>SET {i + 1}</span>
-
                     {isDuration ? (
-                      <ValueField
-                        value={set.duration}
-                        unit="sec"
-                        onTap={() => openPad(i, 'duration', 'DURATION (sec)')}
-                      />
+                      <ValueField value={set.duration} unit="sec" onTap={() => openPad(i, 'duration', 'DURATION (sec)')} />
                     ) : isBW ? (
-                      <ValueField
-                        value={set.reps}
-                        unit="reps"
-                        onTap={() => openPad(i, 'reps', 'REPS')}
-                      />
+                      <ValueField value={set.reps} unit="reps" onTap={() => openPad(i, 'reps', 'REPS')} />
                     ) : (
                       <>
-                        <ValueField
-                          value={set.weight}
-                          unit="kg"
-                          onTap={() => openPad(i, 'weight', 'WEIGHT (kg)')}
-                        />
+                        <ValueField value={set.weight} unit="kg" onTap={() => openPad(i, 'weight', 'WEIGHT (kg)')} />
                         <span style={S.times}>×</span>
-                        <ValueField
-                          value={set.reps}
-                          unit="reps"
-                          onTap={() => openPad(i, 'reps', 'REPS')}
-                        />
+                        <ValueField value={set.reps} unit="reps" onTap={() => openPad(i, 'reps', 'REPS')} />
                       </>
                     )}
                   </div>
@@ -852,26 +751,18 @@ export default function WorkoutScreen({ sessionConfig, data, onFinish, initialGr
             </div>
           )}
 
-          {/* Actions */}
           <div style={S.panelActions}>
             {!activeExercise.isCardioExercise && (
-              <button style={S.addSetBtn} onClick={() => addSet(activeExercise.groupName, activeExercise.id)}>
-                + set
-              </button>
+              <button style={S.addSetBtn} onClick={() => addSet(activeExercise.id)}>+ set</button>
             )}
-            <button style={S.doneBtn} onClick={() => markDone(activeExercise.groupName, activeExercise.id)}>
+            <button style={S.doneBtn} onClick={() => markDone(activeExercise.id)}>
               <span>Done</span>
               <CheckSVG size={14} strokeWidth={2.6} color={C.ink} />
             </button>
           </div>
 
-          {/* Number pad — absolute inside the logging panel, never covers squares */}
           {numPad && (
-            <NumberPad
-              label={numPad.label}
-              initial={numPad.value}
-              onConfirm={confirmPad}
-            />
+            <NumberPad label={numPad.label} initial={numPad.value} onConfirm={confirmPad} />
           )}
         </div>
       )}
@@ -879,28 +770,23 @@ export default function WorkoutScreen({ sessionConfig, data, onFinish, initialGr
       {/* ── Add Exercise Panel ── */}
       {showAddExercise && (
         <AddExercisePanel
-          currentGroupName={showAddExercise}
           data={data}
           onAdd={addExercise}
           onClose={() => setShowAddExercise(false)}
         />
       )}
-
     </div>
   );
 }
 
 // ─── Add Exercise Panel ───────────────────────────────────────────────────────
-
-function AddExercisePanel({ currentGroupName, data, onAdd, onClose }) {
+function AddExercisePanel({ data, onAdd, onClose }) {
   const [search, setSearch] = useState('');
 
-  // All exercises as a flat array with group name attached
   const allExercises = Object.entries(EXERCISES).flatMap(([group, list]) =>
     list.map(ex => ({ ...ex, group }))
   );
 
-  // Recent exercises from history, most recent first
   const recentExercises = data?.exercises
     ? Object.entries(data.exercises)
         .filter(([, ex]) => ex.lastPerformed)
@@ -925,7 +811,7 @@ function AddExercisePanel({ currentGroupName, data, onAdd, onClose }) {
       <button
         key={`${ex.group}-${ex.name}`}
         style={S.addExRow}
-        onClick={() => { onAdd(ex.name, currentGroupName); }}
+        onClick={() => onAdd(ex.name)}
       >
         <span style={{ fontSize: 14.5, fontWeight: 800, color: C.ink, letterSpacing: -0.2 }}>{ex.name}</span>
         {lastInfo && <span style={{ fontSize: 11.5, fontWeight: 700, color: C.grey }}>{lastInfo}</span>}
@@ -934,18 +820,12 @@ function AddExercisePanel({ currentGroupName, data, onAdd, onClose }) {
   };
 
   return (
-    // Full-screen overlay — click backdrop to close
     <div style={S.addOverlay} onClick={onClose}>
-      {/* Full-screen panel */}
       <div style={S.addFullPanel} onClick={e => e.stopPropagation()}>
-
-        {/* Header row */}
         <div style={S.addHeader}>
           <span style={{ fontSize: 17, fontWeight: 900, color: C.ink, letterSpacing: -0.4 }}>Add Exercise</span>
           <button style={S.closeCircleBtn} onClick={onClose}><CloseSVG /></button>
         </div>
-
-        {/* Search bar */}
         <div style={S.addSearchWrap}>
           <span style={{ fontSize: 15, lineHeight: 1, color: C.grey, flexShrink: 0 }}>🔍</span>
           <input
@@ -959,16 +839,12 @@ function AddExercisePanel({ currentGroupName, data, onAdd, onClose }) {
             <button style={S.addSearchClear} onClick={() => setSearch('')}>✕</button>
           )}
         </div>
-
-        {/* Scrollable results — large bottom padding keeps items above keyboard */}
         <div style={S.addResults}>
           {searchResults ? (
-            // Search mode: flat filtered list
             searchResults.length === 0
               ? <div style={{ textAlign: 'center', color: C.grey, fontSize: 14, paddingTop: 32 }}>No exercises found</div>
               : searchResults.map(renderRow)
           ) : (
-            // Browse mode: recent + all grouped
             <>
               {recentExercises.length > 0 && (
                 <div>
@@ -984,7 +860,6 @@ function AddExercisePanel({ currentGroupName, data, onAdd, onClose }) {
               ))}
             </>
           )}
-          {/* Spacer so last items scroll above keyboard */}
           <div style={{ height: 300 }} />
         </div>
       </div>
@@ -994,7 +869,6 @@ function AddExercisePanel({ currentGroupName, data, onAdd, onClose }) {
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
 const S = {
-  // Header
   header: { display:'flex', justifyContent:'space-between', alignItems:'center', padding:'6px 18px 12px', borderBottom:`1px solid ${C.line}`, background:C.bg, zIndex:10, flexShrink:0 },
   headerLeft: { display:'flex', alignItems:'center', gap:9, minWidth:0, overflow:'hidden' },
   headerTitle: { fontSize:18, fontWeight:900, letterSpacing:-0.4, color:C.ink, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' },
@@ -1004,38 +878,22 @@ const S = {
   gearBtn: { fontSize:16, background:'transparent', border:'none', cursor:'pointer', padding:'4px 2px', color:C.grey, lineHeight:1 },
   finishBtn: { height:28, padding:'0 12px', borderRadius:99, background:'transparent', border:`1.5px solid ${C.coral}`, color:C.coral, fontFamily:FONT, fontSize:12, fontWeight:800, letterSpacing:0.2, cursor:'pointer', whiteSpace:'nowrap' },
 
-  // Session context card
   contextCard: { margin:'0 16px', padding:'10px 14px', background:'#FFFAEC', borderRadius:14, border:`1.5px solid ${C.yolk}`, cursor:'pointer', flexShrink:0 },
   contextTop: { display:'flex', justifyContent:'space-between', alignItems:'center', gap:8 },
   contextName: { fontSize:11, fontWeight:800, letterSpacing:1.2, color:C.yolkDeep, flex:1 },
   contextToggle: { fontSize:9, color:C.grey, flexShrink:0 },
   contextText: { fontSize:12.5, fontWeight:500, color:C.ink2, lineHeight:1.5, marginTop:6 },
 
-  // Slots — scrollable, sits behind the logging panel when open
-  slotsArea: { padding:'14px 16px 16px', display:'flex', flexDirection:'column', gap:12, flex:1, overflowY:'auto', WebkitOverflowScrolling:'touch', overscrollBehavior:'contain' },
-  groupCaps: { fontSize:10.5, fontWeight:800, letterSpacing:1.4, textTransform:'uppercase', color:C.grey, paddingLeft:4 },
+  slotsArea: { padding:'14px 16px 16px', flex:1, overflowY:'auto', WebkitOverflowScrolling:'touch', overscrollBehavior:'contain' },
   slotsGrid: { display:'grid', gridTemplateColumns:'repeat(5, 1fr)', gap:8 },
   slot: { aspectRatio:'1/1', borderRadius:18, border:'none', display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', padding:'6px 8px', gap:4, cursor:'pointer', boxSizing:'border-box', position:'relative', fontFamily:FONT },
   doneBadge: { position:'absolute', top:6, right:6, width:14, height:14, borderRadius:99, background:C.yolkSoft, display:'flex', alignItems:'center', justifyContent:'center' },
+  deleteBtn: { position:'absolute', top:4, left:4, width:16, height:16, borderRadius:99, background:'rgba(44,36,22,0.08)', border:'none', display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer', padding:0, zIndex:2 },
   addSlot: { aspectRatio:'1/1', borderRadius:18, border:`1.5px dashed ${C.yolk}`, background:'transparent', display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer', boxSizing:'border-box' },
 
-  // Logging panel — fixed 90vh sheet slides up from bottom
-  loggingPanel: {
-    position:'fixed', bottom:0, left:0, right:0,
-    height:'90vh',
-    background:C.panelLight,
-    borderTopLeftRadius:32, borderTopRightRadius:32,
-    padding:'14px 18px 28px',
-    boxShadow:'0 -10px 40px -10px rgba(44,36,22,0.28)',
-    display:'flex', flexDirection:'column', gap:0,
-    zIndex:50,
-    overflow:'hidden',       // clips numPad slide within panel
-    touchAction:'pan-y',     // allow internal scroll, not dismiss
-    animation:'slideUp 260ms cubic-bezier(0.32,0.72,0,1)',
-  },
+  loggingPanel: { position:'fixed', bottom:0, left:0, right:0, height:'90vh', background:C.panelLight, borderTopLeftRadius:32, borderTopRightRadius:32, padding:'14px 18px 28px', boxShadow:'0 -10px 40px -10px rgba(44,36,22,0.28)', display:'flex', flexDirection:'column', gap:0, zIndex:50, overflow:'hidden', touchAction:'pan-y', animation:'slideUp 260ms cubic-bezier(0.32,0.72,0,1)' },
   panelHandle: { width:38, height:4, borderRadius:99, background:C.line, margin:'0 auto 14px', flexShrink:0, touchAction:'none' },
 
-  // AI guidance card
   guidanceCard: { background:C.yolkSoft, borderRadius:14, padding:'10px 14px', marginBottom:12, flexShrink:0 },
   guidanceText: { fontSize:12.5, fontWeight:700, color:C.ink2, lineHeight:1.4, marginBottom:6, fontStyle:'italic' },
   guidanceRows: { display:'flex', flexDirection:'column', gap:3 },
@@ -1044,30 +902,21 @@ const S = {
   guidanceVal: { fontSize:12.5, fontWeight:700, color:C.ink2 },
   guidanceNew: { fontSize:12, fontWeight:600, color:C.ink2, fontStyle:'italic', lineHeight:1.4 },
 
-  // Exercise name
   exerciseName: { fontSize:26, fontWeight:900, color:C.ink, letterSpacing:-0.7, lineHeight:1, marginBottom:14, flexShrink:0 },
-
-  // Sets list — scrollable if many sets
   setsScroll: { display:'flex', flexDirection:'column', gap:8, overflowY:'auto', flex:1, paddingBottom:4 },
   cardioFields: { display:'flex', gap:8, flexShrink:0, flexWrap:'wrap', marginBottom:8 },
-
-  // Set row
   setRow: { display:'flex', alignItems:'center', gap:8, flexShrink:0 },
   setLabel: { width:38, fontSize:10, fontWeight:800, color:C.grey, letterSpacing:1.1, textTransform:'uppercase', whiteSpace:'nowrap', flexShrink:0 },
 
-  // Value field (tappable)
   valField: { flex:1, minWidth:0, height:54, borderRadius:14, background:C.bg, border:`1px solid ${C.line}`, boxShadow:'inset 0 1px 0 rgba(255,255,255,0.6), inset 0 -1px 0 rgba(44,36,22,0.04)', display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:1, fontFamily:FONT },
   valNum: { fontSize:22, fontWeight:900, color:C.ink, letterSpacing:-0.5, lineHeight:1, fontVariantNumeric:'tabular-nums' },
   valUnit: { fontSize:10, fontWeight:700, color:C.grey },
-
   times: { fontSize:14, fontWeight:800, color:C.grey2, flexShrink:0 },
 
-  // Panel actions
   panelActions: { display:'flex', gap:10, marginTop:12, flexShrink:0 },
   addSetBtn: { flexShrink:0, height:50, padding:'0 16px', borderRadius:16, cursor:'pointer', background:'transparent', color:C.ink, border:`1.5px solid ${C.ink}`, fontFamily:FONT, fontSize:14, fontWeight:800, letterSpacing:-0.1, whiteSpace:'nowrap' },
   doneBtn: { flex:1, height:50, borderRadius:16, border:'none', cursor:'pointer', background:C.yolk, color:C.ink, fontFamily:FONT, fontSize:16, fontWeight:900, letterSpacing:-0.2, boxShadow:'0 1px 0 rgba(255,255,255,0.6) inset, 0 10px 22px -10px rgba(245,197,24,0.6), 0 2px 0 rgba(44,36,22,0.06)', display:'flex', alignItems:'center', justifyContent:'center', gap:8, whiteSpace:'nowrap' },
 
-  // Number pad — position:absolute inside the fixed logging panel
   numPadOverlay: { position:'absolute', inset:0, background:'rgba(255,250,236,0.55)', backdropFilter:'blur(2px)', WebkitBackdropFilter:'blur(2px)', zIndex:10, display:'flex', alignItems:'flex-end', animation:'fadeIn 120ms ease' },
   numPadPanel: { width:'100%', background:C.panelLight, borderTopLeftRadius:24, borderTopRightRadius:24, padding:'16px 14px 20px', display:'flex', flexDirection:'column', gap:0, animation:'slideUp 220ms cubic-bezier(0.32,0.72,0,1)', fontFamily:FONT, boxShadow:'0 -4px 20px -8px rgba(44,36,22,0.2)' },
   numPadLabel: { fontSize:10.5, fontWeight:800, letterSpacing:1.6, textTransform:'uppercase', color:C.grey, textAlign:'center', marginBottom:6 },
@@ -1080,9 +929,6 @@ const S = {
   numPadClear: { flex:1, height:50, borderRadius:14, background:C.panel, border:`1.5px solid ${C.line}`, fontSize:15, fontWeight:800, color:C.ink, cursor:'pointer', fontFamily:FONT },
   numPadDone: { flex:2, height:50, borderRadius:14, background:C.yolk, border:'none', fontSize:16, fontWeight:900, color:C.ink, cursor:'pointer', fontFamily:FONT, boxShadow:'0 1px 0 rgba(255,255,255,0.6) inset, 0 8px 20px -8px rgba(245,197,24,0.6)' },
 
-  // Overlays
-  overlay: { position:'fixed', inset:0, background:'rgba(44,36,22,0.4)', zIndex:100, display:'flex', alignItems:'flex-end' },
-  // Add exercise panel — full-screen, z-index 200 (above logging panel at 50)
   addOverlay: { position:'fixed', top:0, left:0, right:0, bottom:0, zIndex:200, animation:'fadeIn 200ms ease' },
   addFullPanel: { position:'fixed', top:0, left:0, right:0, bottom:0, background:C.bg, display:'flex', flexDirection:'column', fontFamily:FONT },
   addHeader: { display:'flex', alignItems:'center', justifyContent:'space-between', padding:'16px 18px 12px', borderBottom:`1px solid ${C.line}`, flexShrink:0, background:C.bg },
@@ -1093,10 +939,4 @@ const S = {
   addGroupLabel: { fontSize:10, fontWeight:800, letterSpacing:1.4, textTransform:'uppercase', color:C.grey, padding:'14px 2px 6px', flexShrink:0 },
   closeCircleBtn: { width:30, height:30, borderRadius:99, padding:0, cursor:'pointer', background:'transparent', border:`1px solid ${C.line}`, display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 },
   addExRow: { width:'100%', textAlign:'left', background:C.panelLight, border:`1px solid ${C.line}`, borderRadius:14, padding:'11px 14px', marginBottom:6, display:'flex', justifyContent:'space-between', alignItems:'center', cursor:'pointer', fontFamily:FONT, boxShadow:'0 1px 0 rgba(255,255,255,0.6) inset', boxSizing:'border-box' },
-
-  // Confirm dialog
-  confirmCard: { background:C.panelLight, borderTopLeftRadius:32, borderTopRightRadius:32, padding:'28px 20px', width:'100%', display:'flex', flexDirection:'column', alignItems:'center', gap:16, fontFamily:FONT, animation:'slideUp 280ms ease' },
-  confirmText: { fontSize:16, fontWeight:700, color:C.ink, textAlign:'center', lineHeight:1.5, maxWidth:280 },
-  stretchBtn: { width:'100%', height:50, padding:0, background:C.yolk, border:'none', borderRadius:16, fontSize:16, fontWeight:900, color:C.ink, cursor:'pointer', fontFamily:FONT, boxShadow:'0 1px 0 rgba(255,255,255,0.6) inset, 0 10px 22px -10px rgba(245,197,24,0.6)' },
-  finishAnywayBtn: { width:'100%', height:48, padding:0, background:'transparent', border:`1.5px solid ${C.line}`, borderRadius:16, fontSize:15, fontWeight:700, color:C.grey, cursor:'pointer', fontFamily:FONT },
 };

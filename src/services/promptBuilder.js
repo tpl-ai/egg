@@ -6,22 +6,17 @@ Use exactly this structure:
 {
   "session_name": "2-4 word session name (e.g. 'Push + Core Power')",
   "session_context": "1-2 sentences max explaining why this session today, referencing movement history",
-  "groups": [
+  "exercises": [
     {
-      "name": "Warm-up | Push | Pull | Core | Balance | Cardio | Cool-down",
-      "exercises": [
-        {
-          "name": "exercise name",
-          "type": "strength|duration|cardio",
-          "weight": number or null,
-          "reps": number or null,
-          "sets": number or null,
-          "duration": seconds or null,
-          "bodyweight": true or null,
-          "guidance": "one sentence, max 15 words, e.g. 'Last session 68kg felt strong — try 72.5kg today.'",
-          "note": "string or null"
-        }
-      ]
+      "name": "exercise name",
+      "type": "strength|duration|cardio",
+      "weight": number or null,
+      "reps": number or null,
+      "sets": number or null,
+      "duration": seconds or null,
+      "bodyweight": true or null,
+      "guidance": "one sentence, max 15 words, e.g. 'Last session 68kg felt strong — try 72.5kg today.'",
+      "note": "string or null"
     }
   ],
   "cardio_position": "first|last|none",
@@ -39,17 +34,21 @@ const EQUIPMENT_BY_LOCATION = {
   'Home':       'Equipment as noted in profile/limitations. Default to bodyweight if nothing specified.',
 };
 
+// Get all exercises from a session — handles both flat (new) and groups (legacy) formats
+function getSessionExercises(session) {
+  if (session.exercises) return session.exercises;
+  return session.groups?.flatMap(g => g.exercises ?? []) ?? [];
+}
+
 // Get movement categories worked in a session
 function getSessionMovements(session, allExercises) {
   const movements = new Set();
-  session.groups?.forEach(group => {
-    group.exercises?.forEach(exercise => {
-      if (exercise.status !== 'done') return;
-      const match = allExercises.find(e =>
-        e.name.toLowerCase() === exercise.name.toLowerCase()
-      );
-      if (match?.movement) movements.add(match.movement);
-    });
+  getSessionExercises(session).forEach(exercise => {
+    if (exercise.status !== 'done') return;
+    const match = allExercises.find(e =>
+      e.name.toLowerCase() === exercise.name.toLowerCase()
+    );
+    if (match?.movement) movements.add(match.movement);
   });
   return [...movements];
 }
@@ -133,17 +132,15 @@ export function buildFullHandoff(data, timeAvailable, location = 'Full Gym') {
     return `${formatDate(s.date)}: ${movs.join(', ') || 'unknown'}`;
   }).join('\n') || 'No movement history yet.';
 
-  // 6. EXERCISE FREQUENCY — last 30 days
+  // 6. EXERCISE FREQUENCY — last 30 days (handles both flat and legacy formats)
   const recentCounts = {};
   sessions
     .filter(s => s.date && new Date(s.date) >= thirtyDaysAgo)
     .forEach(session => {
-      session.groups?.forEach(g => {
-        g.exercises?.forEach(e => {
-          if (e.status === 'done') {
-            recentCounts[e.name] = (recentCounts[e.name] || 0) + 1;
-          }
-        });
+      getSessionExercises(session).forEach(e => {
+        if (e.status === 'done') {
+          recentCounts[e.name] = (recentCounts[e.name] || 0) + 1;
+        }
       });
     });
   const frequent  = Object.entries(recentCounts).filter(([, c]) => c >= 6).map(([n]) => n);
@@ -155,8 +152,8 @@ export function buildFullHandoff(data, timeAvailable, location = 'Full Gym') {
       const raw = typeof i === 'string' ? i : i.text || i.content || JSON.stringify(i);
       return `- ${raw
         .replace(/â€"/g, '—')
-        .replace(/â€˜/g, '\u2018')
-        .replace(/â€™/g, '\u2019')}`;
+        .replace(/â€˜/g, '‘')
+        .replace(/â€™/g, '’')}`;
     })
     .join('\n') || '- None recorded yet.';
 
@@ -187,11 +184,10 @@ MOVEMENT HISTORY (last 7 sessions):
 ${movementHistory}
 
 MOVEMENT CATEGORY RULES:
-- 6 categories: Push, Pull, Core, Balance, Cardio, Stretch
+- 6 movement categories: Push, Pull, Core, Balance, Cardio, Stretch
 - Rotation: Push↔Pull alternate, Balance↔Core alternate
 - Cardio and Stretch: always include every session
 - Never repeat the same primary category two days in a row
-- Group names in JSON must be: Warm-up, Push, Pull, Core, Balance, Cardio, Cool-down
 
 EXERCISE FREQUENCY (last 30 days):
 ${frequent.length > 0 ? `Frequent (6+ times, may need variety): ${frequent.join(', ')}` : 'No exercises done 6+ times in last 30 days.'}
@@ -223,70 +219,64 @@ Rules to always follow:
 - Never shoulders before chest on same day
 - If under 30 min: max 4 exercises, no cardio unless specified
 - Flag if rest day is needed based on recent pattern
-- Warm-up and cool-down always included — tailor stretches to muscles worked
+- Warm-up and cool-down exercises always included — tailor stretches to muscles worked
 - Keep it fresh — vary exercises, don't default to same routine every time
 - For bodyweight exercises: set bodyweight to true and weight to null
-- For each exercise, include a "guidance" field: one short sentence (max 15 words) about target weight/reps based on history. Example: "Last session 68kg felt strong — aim for 70kg today."
+- For cardio exercises: set type to "cardio"
+- For each exercise, include a "guidance" field: one short sentence (max 15 words) about target weight/reps based on history
 - Time is real: account for rest periods, don't overschedule
 ${JSON_FORMAT_INSTRUCTION}`;
 }
 
 // Build session summary for end of workout
 export function buildSessionSummary(session) {
-  console.log('Building summary for:', JSON.stringify(session, null, 2));
+  const exercises = getSessionExercises(session);
+  const doneExercises = exercises.filter(e => e.status === 'done');
 
-  if (!session?.groups?.length) {
+  if (!doneExercises.length) {
     return 'No exercises logged — nothing to copy';
   }
 
   const dur = session.duration || session.totalDuration || session.time || '?';
   const lines = [];
   lines.push(`Session complete:`);
-  lines.push(`${formatDate(session.date)} — ${session.groups.map(g => g.name).join(' + ')} — ${dur}min`);
+  lines.push(`${formatDate(session.date)} — ${dur}min`);
   lines.push('');
 
-  session.groups.forEach(group => {
-    lines.push(`${group.name}:`);
-    group.exercises.forEach(exercise => {
-      if (exercise.status !== 'done') return;
+  doneExercises.forEach(exercise => {
+    if (exercise.isCardioExercise && exercise.sets?.length) {
+      const log = exercise.sets[0];
+      const parts = [];
+      if (log.duration  && log.duration  !== '0') parts.push(`${log.duration}min`);
+      if (exercise.cardioTrackDistance && log.distance && log.distance !== '0')
+        parts.push(`${log.distance}${exercise.cardioDistanceUnit || ''}`);
+      if (exercise.cardioTrackElevation && log.elevation && log.elevation !== '0')
+        parts.push(`${log.elevation}m ↑`);
+      if (exercise.cardioTrackFloors && log.floors && log.floors !== '0')
+        parts.push(`${log.floors} floors`);
+      lines.push(`✓ ${exercise.name}${parts.length ? ': ' + parts.join(', ') : ''}`);
+      return;
+    }
 
-      if (exercise.isCardioExercise && exercise.sets?.length) {
-        const log = exercise.sets[0];
-        const parts = [];
-        if (log.duration  && log.duration  !== '0') parts.push(`${log.duration}min`);
-        if (exercise.cardioTrackDistance && log.distance && log.distance !== '0')
-          parts.push(`${log.distance}${exercise.cardioDistanceUnit || ''}`);
-        if (exercise.cardioTrackElevation && log.elevation && log.elevation !== '0')
-          parts.push(`${log.elevation}m ↑`);
-        if (exercise.cardioTrackFloors && log.floors && log.floors !== '0')
-          parts.push(`${log.floors} floors`);
-        lines.push(`✓ ${exercise.name}${parts.length ? ': ' + parts.join(', ') : ''}`);
-        return;
-      }
-
-      if (exercise.sets?.length) {
-        const validSets = exercise.sets.filter(s =>
-          (s.duration && s.duration !== '0') ||
-          (s.weight && s.weight !== '0' && s.weight !== 'BW') ||
-          (s.reps && s.reps !== '0')
-        );
-        const setStrs = (validSets.length ? validSets : exercise.sets).map(s => {
-          if (s.duration && s.duration !== '0') return `${s.duration}sec`;
-          if (s.weight === 'BW') return `BW × ${s.reps}`;
-          return `${s.weight}kg × ${s.reps}`;
-        }).join(', ');
-        lines.push(`✓ ${exercise.name}: ${setStrs}`);
-      } else {
-        lines.push(`✓ ${exercise.name}`);
-      }
-    });
-    lines.push('');
+    if (exercise.sets?.length) {
+      const validSets = exercise.sets.filter(s =>
+        (s.duration && s.duration !== '0') ||
+        (s.weight && s.weight !== '0' && s.weight !== 'BW') ||
+        (s.reps && s.reps !== '0')
+      );
+      const setStrs = (validSets.length ? validSets : exercise.sets).map(s => {
+        if (s.duration && s.duration !== '0') return `${s.duration}sec`;
+        if (s.weight === 'BW') return `BW × ${s.reps}`;
+        return `${s.weight}kg × ${s.reps}`;
+      }).join(', ');
+      lines.push(`✓ ${exercise.name}: ${setStrs}`);
+    } else {
+      lines.push(`✓ ${exercise.name}`);
+    }
   });
 
-  if (session.notes) {
-    lines.push(`Notes: ${session.notes}`);
-  }
-
+  lines.push('');
+  if (session.notes) lines.push(`Notes: ${session.notes}`);
   lines.push(`How did I do? What should I focus on next session?`);
 
   return lines.join('\n');
@@ -294,7 +284,6 @@ export function buildSessionSummary(session) {
 
 // Parse Claude's JSON response into session config
 export function parseClaudeResponse(text) {
-  // Strip markdown fences if present
   const cleaned = text.trim()
     .replace(/^```json\s*/i, '')
     .replace(/^```\s*/i, '')
@@ -311,39 +300,51 @@ export function parseClaudeResponse(text) {
 
   const cardioPosition = raw.cardio_position || 'none';
 
-  const mappedGroups = (raw.groups || []).map(g => ({
-    name: g.name,
-    exercises: (g.exercises || []).map(e => ({
-      name: e.name,
-      type: e.type || 'strength',
-      weight: e.weight ?? null,
-      reps: e.reps ?? null,
-      sets: e.sets ?? null,
-      duration: e.duration ?? null,
-      bodyweight: e.bodyweight ?? null,
-      guidance: e.guidance ?? null,
-      note: e.note ?? null,
-      status: 'pending',
-    })),
+  // Handle both new flat format (raw.exercises) and legacy groups format (raw.groups)
+  let flatExercises;
+  if (raw.exercises) {
+    flatExercises = raw.exercises;
+  } else if (raw.groups) {
+    flatExercises = raw.groups.flatMap(g => g.exercises || []);
+  } else {
+    flatExercises = [];
+  }
+
+  const mapped = flatExercises.map(e => ({
+    name: e.name,
+    type: e.type || 'strength',
+    weight: e.weight ?? null,
+    reps: e.reps ?? null,
+    sets: e.sets ?? null,
+    duration: e.duration ?? null,
+    bodyweight: e.bodyweight ?? null,
+    guidance: e.guidance ?? null,
+    note: e.note ?? null,
+    status: 'pending',
   }));
 
-  // Reorder groups based on cardio_position
-  const cardioGroup   = mappedGroups.find(g => g.name === 'Cardio');
-  const warmupGroup   = mappedGroups.find(g => g.name === 'Warm-up');
-  const cooldownGroup = mappedGroups.find(g => g.name === 'Cool-down');
-  const otherGroups   = mappedGroups.filter(g =>
-    g.name !== 'Cardio' && g.name !== 'Warm-up' && g.name !== 'Cool-down'
-  );
+  // Apply cardio ordering
+  if (cardioPosition !== 'none') {
+    const isCardio = e => e.type === 'cardio';
+    const cardioExs = mapped.filter(isCardio);
+    const otherExs  = mapped.filter(e => !isCardio(e));
+    const ordered = cardioPosition === 'first'
+      ? [...cardioExs, ...otherExs]
+      : [...otherExs, ...cardioExs];
 
-  const ordered = [];
-  if (warmupGroup) ordered.push(warmupGroup);
-  if (cardioGroup && cardioPosition === 'first') ordered.push(cardioGroup);
-  ordered.push(...otherGroups);
-  if (cardioGroup && cardioPosition === 'last') ordered.push(cardioGroup);
-  if (cooldownGroup) ordered.push(cooldownGroup);
+    return {
+      exercises: ordered,
+      coach: raw.coach || '',
+      insights: raw.insights || '',
+      substitutes: raw.substitutes || {},
+      cardioPosition,
+      sessionName: raw.session_name || '',
+      sessionContext: raw.session_context || '',
+    };
+  }
 
   return {
-    groups: ordered,
+    exercises: mapped,
     coach: raw.coach || '',
     insights: raw.insights || '',
     substitutes: raw.substitutes || {},
@@ -356,8 +357,9 @@ export function parseClaudeResponse(text) {
 // Format a session as compact single-line entry
 function formatSessionCompact(session) {
   if (!session) return '';
-  const groups    = session.groups?.map(g => g.name).join('+') || '';
-  const exercises = session.groups?.flatMap(g => g.exercises || [])
+  const exercises = getSessionExercises(session);
+
+  const exStr = exercises
     .filter(e => e.status === 'done')
     .map(e => {
       if (e.isCardioExercise) {
@@ -375,7 +377,7 @@ function formatSessionCompact(session) {
     .join(' ') || '';
 
   const dur = session.duration || session.totalDuration || session.time || '?';
-  return `${formatDate(session.date)} | ${groups} | ${dur}min | ${exercises}`;
+  return `${formatDate(session.date)} | ${dur}min | ${exStr}`;
 }
 
 function formatDate(dateStr) {

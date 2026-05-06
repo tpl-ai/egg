@@ -11,21 +11,33 @@ import SessionHistoryScreen from './screens/SessionHistory';
 
 const CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID;
 
-// Remove exercises with no real logged data; remove empty groups
+// Filter a session's exercises: only keep done exercises with real logged data
 function cleanSession(session) {
+  const hasData = ex => {
+    if (!ex.sets?.length) return false;
+    return ex.sets.some(s =>
+      parseFloat(s.weight) > 0 ||
+      parseInt(s.reps) > 0 ||
+      parseInt(s.duration) > 0 ||
+      parseFloat(s.distance) > 0
+    );
+  };
+
+  // New flat format
+  if (session.exercises) {
+    return {
+      ...session,
+      exercises: session.exercises.filter(ex => ex.status === 'done' && hasData(ex)),
+    };
+  }
+
+  // Legacy groups format — preserve structure
   return {
     ...session,
     groups: (session.groups || [])
       .map(group => ({
         ...group,
-        exercises: (group.exercises || []).filter(exercise => {
-          if (!exercise.sets || exercise.sets.length === 0) return false;
-          return exercise.sets.some(set =>
-            (parseFloat(set.weight) > 0) ||
-            (parseInt(set.reps) > 0) ||
-            (parseInt(set.duration) > 0)
-          );
-        }),
+        exercises: (group.exercises || []).filter(ex => hasData(ex)),
       }))
       .filter(group => group.exercises.length > 0),
   };
@@ -36,9 +48,11 @@ function cleanExistingSessionData(data) {
   if (!data?.sessions) return data;
   const cleaned = data.sessions
     .map(s => cleanSession(s))
-    .filter(s => s.groups && s.groups.length > 0 && s.groups.some(g => g.exercises?.length > 0));
-  if (cleaned.length === data.sessions.length &&
-      cleaned.every((s, i) => s.groups.length === data.sessions[i].groups.length)) return data;
+    .filter(s => {
+      if (s.exercises) return s.exercises.length > 0;
+      return s.groups && s.groups.length > 0 && s.groups.some(g => g.exercises?.length > 0);
+    });
+  if (cleaned.length === data.sessions.length) return data;
   return { ...data, sessions: cleaned };
 }
 
@@ -175,6 +189,11 @@ function EggApp() {
     } catch {}
   };
 
+  const handleDataUpdate = (updatedData) => {
+    setData(updatedData);
+    localStorage.setItem('egg_data', JSON.stringify(updatedData));
+  };
+
   const handleWorkoutFinish = async (session) => {
     const clean = cleanSession(session);
     const updated = addSession(data, clean);
@@ -270,7 +289,15 @@ function EggApp() {
           sessionConfig={sessionConfig}
           data={data}
           onFinish={handleWorkoutFinish}
-          initialGroups={pendingResume?.groups ?? null}
+          initialExercises={
+            pendingResume
+              ? (pendingResume.exercises
+                  ?? pendingResume.groups?.flatMap(g =>
+                      (g.exercises ?? []).map(e => ({ ...e, _legacyGroup: g.name }))
+                    )
+                  ?? null)
+              : null
+          }
           onExerciseDone={handleExerciseDone}
           onOpenSettings={() => setAppState('settings')}
         />
@@ -298,6 +325,7 @@ function EggApp() {
           data={data}
           accessToken={accessToken}
           onBack={() => setAppState('settings')}
+          onDataUpdate={handleDataUpdate}
         />
       )}
 

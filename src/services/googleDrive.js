@@ -175,14 +175,16 @@ export function getYesterdayMovements(data) {
   const lastSession = sessions[0];
   const allExercises = getAllExercises();
   const movements = new Set();
-  lastSession.groups?.forEach(group => {
-    group.exercises?.forEach(exercise => {
-      if (exercise.status !== 'done') return;
-      const match = allExercises.find(e =>
-        e.name.toLowerCase() === exercise.name.toLowerCase()
-      );
-      if (match?.movement) movements.add(match.movement);
-    });
+  // Handle both flat (new) and groups (legacy) formats
+  const exercises = lastSession.exercises
+    ?? lastSession.groups?.flatMap(g => g.exercises ?? [])
+    ?? [];
+  exercises.forEach(exercise => {
+    if (exercise.status !== 'done') return;
+    const match = allExercises.find(e =>
+      e.name.toLowerCase() === exercise.name.toLowerCase()
+    );
+    if (match?.movement) movements.add(match.movement);
   });
   return [...movements];
 }
@@ -244,50 +246,52 @@ export function addSession(data, session) {
   const allExerciseData = getAllExercises();
   const pillarsWorked   = new Set();
 
+  // Handle both flat (new) and groups (legacy) session formats
+  const sessionExercises = session.exercises
+    ?? session.groups?.flatMap(g => g.exercises ?? [])
+    ?? [];
+
   // Update exercise history, PRs, and track pillars
-  session.groups.forEach(group => {
-    group.exercises.forEach(exercise => {
-      if (exercise.status !== 'done') return;
+  sessionExercises.forEach(exercise => {
+    if (exercise.status !== 'done') return;
 
-      // Track pillars for this exercise
-      const match = allExerciseData.find(e =>
-        e.name.toLowerCase() === exercise.name.toLowerCase()
-      );
-      if (match?.pillars) {
-        match.pillars.forEach(p => pillarsWorked.add(p));
+    // Track pillars for this exercise
+    const match = allExerciseData.find(e =>
+      e.name.toLowerCase() === exercise.name.toLowerCase()
+    );
+    if (match?.pillars) {
+      match.pillars.forEach(p => pillarsWorked.add(p));
+    }
+
+    // Update weight/rep history and PRs for non-cardio exercises
+    if (exercise.sets && !exercise.isCardioExercise) {
+      const maxWeight = Math.max(...exercise.sets.map(s =>
+        parseFloat(s.weight) || 0));
+      const maxReps = Math.max(...exercise.sets.map(s =>
+        parseInt(s.reps) || 0));
+
+      if (!updated.exercises[exercise.name]) {
+        updated.exercises[exercise.name] = {
+          sessions: 0,
+          lastPerformed: null,
+          lastWeight: null,
+          lastReps: null,
+        };
       }
+      updated.exercises[exercise.name].sessions += 1;
+      updated.exercises[exercise.name].lastPerformed = session.date;
+      updated.exercises[exercise.name].lastWeight = maxWeight;
+      updated.exercises[exercise.name].lastReps = maxReps;
 
-      // Update weight/rep history and PRs for strength exercises only
-      if (exercise.sets && !exercise.isCardioExercise) {
-        const maxWeight = Math.max(...exercise.sets.map(s =>
-          parseFloat(s.weight) || 0));
-        const maxReps = Math.max(...exercise.sets.map(s =>
-          parseInt(s.reps) || 0));
-
-        if (!updated.exercises[exercise.name]) {
-          updated.exercises[exercise.name] = {
-            group: group.name,
-            sessions: 0,
-            lastPerformed: null,
-            lastWeight: null,
-            lastReps: null,
-          };
-        }
-        updated.exercises[exercise.name].sessions += 1;
-        updated.exercises[exercise.name].lastPerformed = session.date;
-        updated.exercises[exercise.name].lastWeight = maxWeight;
-        updated.exercises[exercise.name].lastReps = maxReps;
-
-        if (!updated.prs[exercise.name] ||
-            maxWeight > (updated.prs[exercise.name].weight || 0)) {
-          updated.prs[exercise.name] = {
-            weight: maxWeight,
-            reps: maxReps,
-            date: session.date,
-          };
-        }
+      if (!updated.prs[exercise.name] ||
+          maxWeight > (updated.prs[exercise.name].weight || 0)) {
+        updated.prs[exercise.name] = {
+          weight: maxWeight,
+          reps: maxReps,
+          date: session.date,
+        };
       }
-    });
+    }
   });
 
   // Update pillar last-worked dates

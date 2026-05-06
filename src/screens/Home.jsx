@@ -65,7 +65,7 @@ export default function HomeScreen({ data, driveLoading, driveConnected, onSessi
     }
     try {
       const parsed = parseClaudeResponse(pasteValue);
-      if (!parsed.groups || parsed.groups.length === 0) {
+      if (!parsed.exercises || parsed.exercises.length === 0) {
         setParseError('Could not read AI response — make sure you copied the full response including the { brackets');
         return;
       }
@@ -106,11 +106,8 @@ export default function HomeScreen({ data, driveLoading, driveConnected, onSessi
           const lastDate = last?.date
             ? new Date(last.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
             : '';
-          const groups = last?.groups
-            ?.filter(g => g.name !== 'Warm-up' && g.name !== 'Cool-down')
-            .map(g => g.name.replace(/\s*\(.*?\)/g, '').trim())
-            .slice(0, 2).join(' + ') || '';
-          return `${icon} ${count} sessions · Last: ${lastDate}${groups ? ` — ${groups}` : ''}`;
+          const sessionLabel = last?.sessionName || '';
+          return `${icon} ${count} sessions · Last: ${lastDate}${sessionLabel ? ` — ${sessionLabel}` : ''}`;
         })()}
       </div>
 

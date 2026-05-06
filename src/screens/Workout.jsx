@@ -342,8 +342,8 @@ function initFromParsed(parsed) {
 
 // ─── Build flat exercise list from smart suggestions (no AI response) ─────────
 function buildExercisesFromSuggestions(data) {
-  const { exercisesByCategory } = getSuggestedExercises(data);
-  const ORDER = ['Stretch', 'Push', 'Pull', 'Core', 'Balance', 'Cardio'];
+  const { primaryMovements, secondaryMovement, exercisesByCategory } = getSuggestedExercises(data);
+  const ORDER = ['Stretch', ...primaryMovements, secondaryMovement, 'Cardio'];
 
   return ORDER
     .filter(cat => exercisesByCategory[cat]?.length > 0)
@@ -369,9 +369,10 @@ function buildExercisesFromSuggestions(data) {
         }
         const type = DURATION_EXERCISES.has(ex.name) ? 'duration'
           : cat === 'Stretch' ? 'duration'
+          : ex.type === 'bodyweight' ? 'bodyweight'
           : 'strength';
         const isDur = type === 'duration';
-        const isBW = ex.equipment === 'bodyweight' || ex.equipment === 'Bodyweight';
+        const isBW = type === 'bodyweight';
         return {
           name: ex.name,
           id: `${cat}-${catIdx}-${i}`,
@@ -406,21 +407,19 @@ export default function WorkoutScreen({ sessionConfig, data, onFinish, initialEx
   const sessionName = sessionConfig.parsed?.sessionName || '';
   const sessionContext = useMemo(() => {
     if (sessionConfig.parsed?.sessionContext) return sessionConfig.parsed.sessionContext;
-    const { todayFocus, yesterdayMovements } = getSuggestedExercises(data);
-    const primary = todayFocus.filter(m => m !== 'Cardio' && m !== 'Stretch');
-    const focusStr = primary.join(' + ') || 'Full Body';
+    const { todayType, primaryMovements, yesterdayMovements } = getSuggestedExercises(data);
+    const focusStr = primaryMovements.join(' + ') || 'Full Body';
     if (yesterdayMovements.length > 0) {
       const yday = yesterdayMovements.filter(m => m !== 'Cardio' && m !== 'Stretch');
-      return `Yesterday: ${yday.join(', ') || 'Rest'} · Suggested focus: ${focusStr}`;
+      return `Yesterday: ${yday.join(', ') || 'Rest'} · Suggested: ${todayType} day (${focusStr})`;
     }
-    return `Suggested focus: ${focusStr}`;
+    return `Suggested: ${todayType} day (${focusStr})`;
   }, [sessionConfig.parsed, data]);
 
   const workoutTitle = useMemo(() => {
     if (sessionName) return sessionName;
-    const { todayFocus } = getSuggestedExercises(data);
-    const primary = todayFocus.filter(m => m !== 'Cardio' && m !== 'Stretch');
-    return primary.slice(0, 2).join(' + ') || 'Workout';
+    const { primaryMovements } = getSuggestedExercises(data);
+    return primaryMovements.join(' + ') || 'Workout';
   }, [sessionName, data]);
 
   useEffect(() => {

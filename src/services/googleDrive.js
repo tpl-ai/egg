@@ -168,6 +168,12 @@ export function getDefaultData() {
   };
 }
 
+function getSessionExercises(session) {
+  return session.exercises
+    ?? session.groups?.flatMap(g => g.exercises ?? [])
+    ?? [];
+}
+
 // Get movement categories worked in the most recent session
 export function getYesterdayMovements(data) {
   const sessions = data?.sessions;
@@ -175,11 +181,7 @@ export function getYesterdayMovements(data) {
   const lastSession = sessions[0];
   const allExercises = getAllExercises();
   const movements = new Set();
-  // Handle both flat (new) and groups (legacy) formats
-  const exercises = lastSession.exercises
-    ?? lastSession.groups?.flatMap(g => g.exercises ?? [])
-    ?? [];
-  exercises.forEach(exercise => {
+  getSessionExercises(lastSession).forEach(exercise => {
     if (exercise.status !== 'done') return;
     const match = allExercises.find(e =>
       e.name.toLowerCase() === exercise.name.toLowerCase()
@@ -189,43 +191,68 @@ export function getYesterdayMovements(data) {
   return [...movements];
 }
 
+// Classify a session as Push/Pull and detect Core/Balance presence
+function classifySession(session, allExercises) {
+  const movements = new Set();
+  getSessionExercises(session).forEach(ex => {
+    if (ex.status !== 'done') return;
+    const match = allExercises.find(e => e.name.toLowerCase() === ex.name.toLowerCase());
+    if (match?.movement) movements.add(match.movement);
+  });
+  return {
+    hasPush:    movements.has('UB Push') || movements.has('LB Push'),
+    hasPull:    movements.has('UB Pull') || movements.has('LB Pull'),
+    hasCore:    movements.has('Core'),
+    hasBalance: movements.has('Balance'),
+  };
+}
+
 // Suggest today's focus movements and top exercises per category
 export function getSuggestedExercises(data) {
-  const yesterdayMovements = getYesterdayMovements(data);
-
-  // Rotation logic
-  const rotationMap = { Pull: 'Push', Push: 'Pull', Balance: 'Core', Core: 'Balance' };
-  const todayFocus = new Set(['Cardio', 'Stretch']);
-  yesterdayMovements.forEach(m => {
-    const next = rotationMap[m];
-    if (next) todayFocus.add(next);
-  });
-  // If no primary movement yesterday, default to Push + Core
-  if (!todayFocus.has('Push') && !todayFocus.has('Pull') &&
-      !todayFocus.has('Core') && !todayFocus.has('Balance')) {
-    todayFocus.add('Push');
-    todayFocus.add('Core');
-  }
-
+  const sessions     = data?.sessions || [];
   const allExercises = getAllExercises();
   const userExercises = data?.exercises || {};
 
-  // For each category, find top 3 from user history ranked by sessions count
-  const exercisesByCategory = {};
-  [...todayFocus].forEach(category => {
-    const categoryExercises = allExercises.filter(e => e.movement === category);
+  let todayType        = 'Push';
+  let secondaryMovement = 'Core';
 
-    // Sort by user sessions count (most used first), fall back to order in exercises.js
-    const ranked = categoryExercises
+  if (sessions.length > 0) {
+    const last = classifySession(sessions[0], allExercises);
+
+    if (last.hasPush && !last.hasPull) {
+      todayType = 'Pull';
+    } else if (last.hasPull && !last.hasPush) {
+      todayType = 'Push';
+    }
+    // Both or neither → keep default Push
+
+    if (last.hasCore && !last.hasBalance) {
+      secondaryMovement = 'Balance';
+    } else if (last.hasBalance && !last.hasCore) {
+      secondaryMovement = 'Core';
+    }
+  }
+
+  const primaryMovements = todayType === 'Push'
+    ? ['UB Push', 'LB Push']
+    : ['UB Pull', 'LB Pull'];
+
+  const categories = [...primaryMovements, secondaryMovement, 'Cardio', 'Stretch'];
+  const exercisesByCategory = {};
+
+  categories.forEach(category => {
+    const catExs = allExercises.filter(e => e.movement === category);
+    const ranked = catExs
       .map(e => ({ ...e, sessionCount: userExercises[e.name]?.sessions || 0 }))
       .sort((a, b) => b.sessionCount - a.sessionCount);
-
-    exercisesByCategory[category] = ranked.slice(0, 3);
+    exercisesByCategory[category] = ranked.slice(0, category === 'Cardio' ? 1 : 3);
   });
 
   return {
-    todayFocus: [...todayFocus],
-    yesterdayMovements,
+    todayType,
+    primaryMovements,
+    secondaryMovement,
+    yesterdayMovements: getYesterdayMovements(data),
     exercisesByCategory,
   };
 }

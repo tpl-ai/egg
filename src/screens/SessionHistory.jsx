@@ -16,22 +16,39 @@ function sessionToEditable(session) {
   const rawExercises = getSessionExercises(session);
 
   const exercises = rawExercises.map(ex => {
-    const type = ex.isCardioExercise ? 'cardio'
-               : ex.type === 'duration' ? 'duration'
-               : 'strength';
+    const firstSet = ex.sets?.[0] || {};
 
-    let bestSet = ex.sets?.[0] || {};
+    // Infer type from stored data when explicit type is missing or ambiguous
+    let type;
+    if (ex.isCardioExercise) {
+      type = 'cardio';
+    } else if (ex.type === 'bodyweight' || (ex.bodyweight === true && !firstSet.weight)) {
+      type = 'bodyweight';
+    } else if (ex.type === 'duration') {
+      type = 'duration';
+    } else if (firstSet.weight != null && firstSet.weight !== 'BW' && parseFloat(firstSet.weight) > 0) {
+      type = 'strength';
+    } else if (firstSet.weight === 'BW' || ex.bodyweight === true) {
+      type = 'bodyweight';
+    } else if (firstSet.duration != null && !firstSet.weight && !firstSet.reps) {
+      type = 'duration';
+    } else {
+      type = ex.type || 'strength';
+    }
+
+    let bestSet = firstSet;
     if (type === 'strength' && ex.sets?.length > 1) {
       bestSet = ex.sets.reduce((b, s) =>
-        parseFloat(s.weight) > parseFloat(b.weight || 0) ? s : b, ex.sets[0]);
+        parseFloat(s.weight) > parseFloat(b.weight || 0) ? s : b, firstSet);
     }
 
     return {
       name: ex.name || '',
       type,
-      weight: bestSet.weight != null ? String(bestSet.weight) : '',
+      weight: bestSet.weight != null && bestSet.weight !== 'BW' ? String(bestSet.weight) : '',
       reps: bestSet.reps != null ? String(bestSet.reps) : '',
       duration: bestSet.duration != null ? String(bestSet.duration) : '',
+      distance: firstSet.distance != null ? String(firstSet.distance) : '',
       legacyGroup: ex._legacyGroup || null,
       status: ex.status || 'done',
     };
@@ -49,13 +66,23 @@ function sessionToEditable(session) {
 
 function editableToSession(editable, originalSession) {
   const exercises = editable.exercises.map(ex => {
-    const sets = ex.type === 'strength'
-      ? [{ weight: ex.weight || '0', reps: ex.reps || '0' }]
-      : [{ duration: ex.duration || '0' }];
+    let sets;
+    if (ex.type === 'strength') {
+      sets = [{ weight: ex.weight || '0', reps: ex.reps || '0' }];
+    } else if (ex.type === 'bodyweight') {
+      sets = [{ weight: 'BW', reps: ex.reps || '0' }];
+    } else if (ex.type === 'cardio') {
+      const s = { duration: ex.duration || '0' };
+      if (ex.distance) s.distance = ex.distance;
+      sets = [s];
+    } else {
+      sets = [{ duration: ex.duration || '0' }];
+    }
     return {
       name: ex.name,
       type: ex.type,
       isCardioExercise: ex.type === 'cardio',
+      bodyweight: ex.type === 'bodyweight' ? true : null,
       status: 'done',
       sets,
     };
@@ -125,7 +152,7 @@ export default function SessionHistoryScreen({ data, accessToken, onBack, onData
       ...e,
       exercises: [
         ...e.exercises,
-        { name: '', type: 'strength', weight: '', reps: '', duration: '', legacyGroup: null, status: 'done' },
+        { name: '', type: 'strength', weight: '', reps: '', duration: '', distance: '', legacyGroup: null, status: 'done' },
       ],
     }));
     setIsDirty(true);
@@ -303,7 +330,12 @@ export default function SessionHistoryScreen({ data, accessToken, onBack, onData
   );
 }
 
-const TYPE_OPTIONS = ['strength', 'duration', 'cardio'];
+const TYPE_OPTIONS = [
+  { label: 'Strength', value: 'strength'   },
+  { label: 'Reps',     value: 'bodyweight' },
+  { label: 'Time',     value: 'duration'   },
+  { label: 'Movement', value: 'cardio'     },
+];
 
 function ExerciseCard({ exercise, onChange, onDelete }) {
   return (
@@ -328,22 +360,22 @@ function ExerciseCard({ exercise, onChange, onDelete }) {
 
       {/* Type selector */}
       <div style={S.typeRow}>
-        {TYPE_OPTIONS.map(t => (
+        {TYPE_OPTIONS.map(({ label, value }) => (
           <button
-            key={t}
-            style={{ ...S.typeBtn, ...(exercise.type === t ? S.typeBtnActive : {}) }}
-            onClick={() => onChange('type', t)}
+            key={value}
+            style={{ ...S.typeBtn, ...(exercise.type === value ? S.typeBtnActive : {}) }}
+            onClick={() => onChange('type', value)}
           >
-            {t}
+            {label}
           </button>
         ))}
       </div>
 
-      {/* Value fields */}
-      {exercise.type === 'strength' ? (
+      {/* Value fields per type */}
+      {exercise.type === 'strength' && (
         <div style={S.fieldRow}>
           <div style={S.field}>
-            <label style={S.label}>Weight (kg)</label>
+            <label style={S.label}>kg</label>
             <input
               style={S.input}
               type="number"
@@ -354,7 +386,7 @@ function ExerciseCard({ exercise, onChange, onDelete }) {
             />
           </div>
           <div style={S.field}>
-            <label style={S.label}>Reps</label>
+            <label style={S.label}>reps</label>
             <input
               style={S.input}
               type="number"
@@ -365,9 +397,25 @@ function ExerciseCard({ exercise, onChange, onDelete }) {
             />
           </div>
         </div>
-      ) : (
-        <div style={S.field}>
-          <label style={S.label}>Duration (sec)</label>
+      )}
+
+      {exercise.type === 'bodyweight' && (
+        <div style={{ ...S.field, maxWidth: 120 }}>
+          <label style={S.label}>reps</label>
+          <input
+            style={S.input}
+            type="number"
+            inputMode="numeric"
+            value={exercise.reps}
+            onChange={e => onChange('reps', e.target.value)}
+            placeholder="0"
+          />
+        </div>
+      )}
+
+      {exercise.type === 'duration' && (
+        <div style={{ ...S.field, maxWidth: 140 }}>
+          <label style={S.label}>seconds</label>
           <input
             style={S.input}
             type="number"
@@ -376,6 +424,33 @@ function ExerciseCard({ exercise, onChange, onDelete }) {
             onChange={e => onChange('duration', e.target.value)}
             placeholder="0"
           />
+        </div>
+      )}
+
+      {exercise.type === 'cardio' && (
+        <div style={S.fieldRow}>
+          <div style={S.field}>
+            <label style={S.label}>min</label>
+            <input
+              style={S.input}
+              type="number"
+              inputMode="numeric"
+              value={exercise.duration}
+              onChange={e => onChange('duration', e.target.value)}
+              placeholder="0"
+            />
+          </div>
+          <div style={S.field}>
+            <label style={S.label}>km (optional)</label>
+            <input
+              style={S.input}
+              type="number"
+              inputMode="decimal"
+              value={exercise.distance}
+              onChange={e => onChange('distance', e.target.value)}
+              placeholder="—"
+            />
+          </div>
         </div>
       )}
     </div>

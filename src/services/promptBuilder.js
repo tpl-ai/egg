@@ -4,12 +4,13 @@ const JSON_FORMAT_INSTRUCTION = `
 IMPORTANT: Respond ONLY in valid JSON format. No prose, no markdown, no explanation outside the JSON.
 Use exactly this structure:
 {
-  "session_name": "2-4 word session name (e.g. 'Push + Core Power')",
+  "session_name": "2-4 word session name (e.g. 'Pull + Core Power')",
   "session_context": "1-2 sentences max explaining why this session today, referencing movement history",
   "exercises": [
     {
       "name": "exercise name",
-      "type": "strength|duration|cardio",
+      "movement": "UB Push|UB Pull|LB Push|LB Pull|Core|Balance|Cardio|Stretch",
+      "type": "strength|bodyweight|duration|cardio",
       "weight": number or null,
       "reps": number or null,
       "sets": number or null,
@@ -53,20 +54,32 @@ function getSessionMovements(session, allExercises) {
   return [...movements];
 }
 
+// Return "Push (UB Push, LB Push, Core)" label for a session
+function getSessionDayLabel(session, allExercises) {
+  const movArr = getSessionMovements(session, allExercises);
+  const hasPush = movArr.some(m => m === 'UB Push' || m === 'LB Push');
+  const hasPull = movArr.some(m => m === 'UB Pull' || m === 'LB Pull');
+  const dayType = hasPush && !hasPull ? 'Push'
+                : hasPull && !hasPush ? 'Pull'
+                : hasPush && hasPull  ? 'Push+Pull'
+                : 'Other';
+  const movStr = movArr.join(', ') || 'unknown';
+  return `${dayType} (${movStr})`;
+}
+
 // Build the daily briefing prompt (delta — for ongoing chat, AI already has full context)
 export function buildDailyBriefing(data, timeAvailable, location = 'Full Gym') {
   const equip = EQUIPMENT_BY_LOCATION[location] || EQUIPMENT_BY_LOCATION['Full Gym'];
   const sessions = data?.sessions || [];
   const allExercises = getAllExercises();
 
-  const recentMovements = sessions.slice(0, 3).map(s => {
-    const movs = getSessionMovements(s, allExercises);
-    return `${formatDate(s.date)}: ${movs.join(', ') || 'unknown'}`;
-  }).join('\n') || 'No recent sessions.';
+  const recentMovements = sessions.slice(0, 3).map(s =>
+    `${formatDate(s.date)}: ${getSessionDayLabel(s, allExercises)}`
+  ).join('\n') || 'No recent sessions.';
 
   return `${timeAvailable} minutes today. Location: ${location}. ${equip}
 
-RECENT MOVEMENT HISTORY:
+RECENT MOVEMENT HISTORY (Push/Pull day log):
 ${recentMovements}
 
 ${JSON_FORMAT_INSTRUCTION}`;
@@ -126,11 +139,10 @@ export function buildFullHandoff(data, timeAvailable, location = 'Full Gym') {
     .map(formatSessionCompact)
     .join('\n') || 'No sessions in the last 14 days.';
 
-  // 5. MOVEMENT HISTORY — last 7 sessions
-  const movementHistory = sessions.slice(0, 7).map(s => {
-    const movs = getSessionMovements(s, allExercises);
-    return `${formatDate(s.date)}: ${movs.join(', ') || 'unknown'}`;
-  }).join('\n') || 'No movement history yet.';
+  // 5. MOVEMENT HISTORY — last 7 sessions (Push/Pull day log)
+  const movementHistory = sessions.slice(0, 7).map(s =>
+    `${formatDate(s.date)}: ${getSessionDayLabel(s, allExercises)}`
+  ).join('\n') || 'No movement history yet.';
 
   // 6. EXERCISE FREQUENCY — last 30 days (handles both flat and legacy formats)
   const recentCounts = {};
@@ -184,10 +196,13 @@ MOVEMENT HISTORY (last 7 sessions):
 ${movementHistory}
 
 MOVEMENT CATEGORY RULES:
-- 6 movement categories: Push, Pull, Core, Balance, Cardio, Stretch
-- Rotation: Push↔Pull alternate, Balance↔Core alternate
-- Cardio and Stretch: always include every session
-- Never repeat the same primary category two days in a row
+- 8 movement types: UB Push, UB Pull, LB Push, LB Pull, Core, Balance, Cardio, Stretch
+- Push day = UB Push + LB Push exercises. Pull day = UB Pull + LB Pull exercises.
+- Alternate Push/Pull each session — never repeat the same day type two days in a row.
+- Core and Balance alternate each session as the secondary focus.
+- Cardio and Stretch included every session.
+- Push day structure: Cardio (warm-up) → Stretch (mobility prep) → LB Push → UB Push → Core or Balance → Stretch (cool-down)
+- Pull day structure: same pattern with LB Pull + UB Pull
 
 EXERCISE FREQUENCY (last 30 days):
 ${frequent.length > 0 ? `Frequent (6+ times, may need variety): ${frequent.join(', ')}` : 'No exercises done 6+ times in last 30 days.'}
@@ -205,24 +220,31 @@ Example: 60 min = ~35 min actual lifting time. Do not overschedule.
 
 Please act as my personal trainer and plan today's session:
 
-1. Check MOVEMENT HISTORY — identify yesterday's categories, apply rotation rules
-2. Select today's primary focus (Push or Pull, plus Core or Balance based on rotation)
-3. Filter by equipment and time available
-4. Build session from user's history: use weights/reps from BASELINES, introduce at least one neglected exercise
-5. End coach note with one sentence about what to prioritize next session
+1. Check MOVEMENT HISTORY — identify if yesterday was Push or Pull, apply rotation
+2. Plan today as Push day or Pull day accordingly
+3. Include at least one UB and one LB exercise for the primary day type
+4. Determine secondary: Core or Balance (alternate from last session)
+5. Filter by equipment and time available
+6. Build session from user's history: use weights/reps from BASELINES, introduce at least one neglected exercise
+7. End coach note with one sentence about what to prioritize next session
 
 Rules to always follow:
+- Plan a Push day or Pull day — never repeat same type two sessions in a row
+- Include at least one UB and one LB exercise for the primary day type
+- Start with Cardio (light warm-up cardio, 5-10 min) and Stretch (mobility prep)
+- End with Stretch (cool-down tailored to muscles worked)
+- Core or Balance as secondary — alternate based on last session
 - Match every exercise to available equipment at ${location}
 - Introduce at least one neglected or new exercise per session
 - Pull-up goal work always first when included
 - Compound movements before isolation
-- Never shoulders before chest on same day
-- If under 30 min: max 4 exercises, no cardio unless specified
+- If under 30 min: max 4 exercises, skip light cardio
 - Flag if rest day is needed based on recent pattern
-- Warm-up and cool-down exercises always included — tailor stretches to muscles worked
 - Keep it fresh — vary exercises, don't default to same routine every time
-- For bodyweight exercises: set bodyweight to true and weight to null
+- For bodyweight exercises (push-ups, pull-ups, dips, etc.): set type to "bodyweight" and weight to null
+- For timed holds (plank, dead hang, wall sit): set type to "duration"
 - For cardio exercises: set type to "cardio"
+- For each exercise, include a "movement" field with the correct movement category
 - For each exercise, include a "guidance" field: one short sentence (max 15 words) about target weight/reps based on history
 - Time is real: account for rest periods, don't overschedule
 ${JSON_FORMAT_INSTRUCTION}`;
@@ -312,6 +334,7 @@ export function parseClaudeResponse(text) {
 
   const mapped = flatExercises.map(e => ({
     name: e.name,
+    movement: e.movement ?? null,
     type: e.type || 'strength',
     weight: e.weight ?? null,
     reps: e.reps ?? null,
